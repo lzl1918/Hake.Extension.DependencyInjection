@@ -11,7 +11,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DefaultImplementations\DefaultImplementations.csproj" />
+    <ProjectReference Include="..\Implementations\Hake.Extension.DependencyInjection.Implementations.csproj" />
   </ItemGroup>
 
   <ItemGroup>

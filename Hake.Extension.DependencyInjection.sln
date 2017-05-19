@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.26430.6
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Abstraction", "Abstraction\Abstraction.csproj", "{9FBC2131-AE8C-4273-B09D-A63187E016E0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Abstraction", "Abstraction\Hake.Extension.DependencyInjection.Abstraction.csproj", "{9FBC2131-AE8C-4273-B09D-A63187E016E0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DefaultImplementations", "DefaultImplementations\DefaultImplementations.csproj", "{8B01EACE-B88A-4196-81DC-60F30F998818}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Implementations", "Implementations\Hake.Extension.DependencyInjection.Implementations.csproj", "{8B01EACE-B88A-4196-81DC-60F30F998818}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test", "Test\Test.csproj", "{F5B7FC9E-3959-465B-A4EB-6884463DC261}"
 EndProject

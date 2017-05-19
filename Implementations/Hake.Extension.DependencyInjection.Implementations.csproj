@@ -6,7 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Abstraction\Abstraction.csproj" />
+    <ProjectReference Include="..\Abstraction\Hake.Extension.DependencyInjection.Abstraction.csproj" />
   </ItemGroup>
 
 </Project>
