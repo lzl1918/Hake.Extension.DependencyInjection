@@ -10,7 +10,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         {
             descriptor.NotifyScopeEntered();
         }
-        public static void ExitScope(this ServiceDescriptor descriptor)
+        public static void LeaveScope(this ServiceDescriptor descriptor)
         {
             descriptor.NotifyScopeExited();
         }

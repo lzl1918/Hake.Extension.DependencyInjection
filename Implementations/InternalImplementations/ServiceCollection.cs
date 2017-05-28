@@ -24,6 +24,23 @@ namespace Hake.Extension.DependencyInjection.Implementations.InternalImplementat
             return false;
         }
 
+        private bool disposed = false;
+        ~ServiceCollection()
+        {
+            if (!disposed)
+                return;
+            Dispose();
+        }
+        public void Dispose()
+        {
+            if (disposed)
+                return;
+
+            foreach (var pair in descriptorPool)
+                pair.Value.TryDispose();
+            disposed = true;
+        }
+
         public void ExplicitAdd(ServiceDescriptor serviceDescriptor)
         {
             if (serviceDescriptor == null)

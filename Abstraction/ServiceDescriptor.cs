@@ -57,7 +57,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 return;
 
             Type instanceType = ImplementationInstance.GetType();
-            Type disposeable = instanceType.GetTypeInfo().GetInterface(nameof(System.IDisposable));
+            Type disposeable = instanceType.GetTypeInfo().GetInterface(nameof(IDisposable));
             if (disposeable != null)
                 disposeable.GetMethod("Dispose").Invoke(ImplementationInstance, new object[0]);
             ImplementationInstance = null;
@@ -144,6 +144,18 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 }
             }
             return null;
+        }
+
+        public void TryDispose()
+        {
+            if (ImplementationInstance == null)
+                return;
+
+            Type instanceType = ImplementationInstance.GetType();
+            Type disposeable = instanceType.GetTypeInfo().GetInterface(nameof(IDisposable));
+            if (disposeable != null)
+                disposeable.GetMethod("Dispose").Invoke(ImplementationInstance, new object[0]);
+            ImplementationInstance = null;
         }
 
         public static ServiceDescriptor Transient<TService, TImplementation>() where TService : class where TImplementation : TService

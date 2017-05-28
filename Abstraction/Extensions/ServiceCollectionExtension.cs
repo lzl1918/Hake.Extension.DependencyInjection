@@ -11,5 +11,15 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             return services.GetDescriptor(typeof(TService));
         }
 
+        public static void EnterScope(this IServiceCollection services)
+        {
+            foreach (ServiceDescriptor descriptor in services.GetDescriptors())
+                descriptor.NotifyScopeEntered();
+        }
+        public static void LeaveScope(this IServiceCollection services)
+        {
+            foreach (ServiceDescriptor descriptor in services.GetDescriptors())
+                descriptor.NotifyScopeExited();
+        }
     }
 }

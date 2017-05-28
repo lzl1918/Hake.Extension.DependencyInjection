@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Hake.Extension.DependencyInjection.Abstraction
 {
-    public interface IServiceCollection
+    public interface IServiceCollection : IDisposable
     {
         bool Add(ServiceDescriptor serviceDescriptor);
         void ExplicitAdd(ServiceDescriptor serviceDescriptor);
