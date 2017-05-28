@@ -37,7 +37,11 @@ namespace Hake.Extension.DependencyInjection.Implementations.InternalImplementat
                 return;
 
             foreach (var pair in descriptorPool)
+            {
+                if (pair.Value.ImplementationInstance == this)
+                    continue;
                 pair.Value.TryDispose();
+            }
             disposed = true;
         }
 

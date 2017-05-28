@@ -47,11 +47,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         {
             if (Lifetime != ServiceLifetime.Scoped)
                 return;
-        }
-        internal void NotifyScopeExited()
-        {
-            if (Lifetime != ServiceLifetime.Scoped)
-                return;
 
             if (ImplementationInstance == null)
                 return;
@@ -61,6 +56,11 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             if (disposeable != null)
                 disposeable.GetMethod("Dispose").Invoke(ImplementationInstance, new object[0]);
             ImplementationInstance = null;
+        }
+        internal void NotifyScopeExited()
+        {
+            if (Lifetime != ServiceLifetime.Scoped)
+                return;
         }
 
         public object GetInstance(IServiceProvider services)
