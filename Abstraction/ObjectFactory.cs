@@ -546,7 +546,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 throw;
             }
         }
-        private static InvokeMethodResult TryInvokeMethod(object instance, MethodInfo method, IServiceProvider services, Dictionary<string, object> valueMap, params object[] extraParameters)
+        private static InvokeMethodResult TryInvokeMethod(object instance, MethodInfo method, IServiceProvider services, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
         {
             if (instance == null)
                 throw new ArgumentNullException(nameof(instance));
