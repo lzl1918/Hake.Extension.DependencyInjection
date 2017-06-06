@@ -11,6 +11,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         bool Remove(ServiceDescriptor serviceDescriptor);
 
         ServiceDescriptor GetDescriptor(Type serviceType);
+        bool TryGetDescriptor(Type serviceType, out ServiceDescriptor descriptor);
         IEnumerable<ServiceDescriptor> GetDescriptors();
     }
 }

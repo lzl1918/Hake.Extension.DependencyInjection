@@ -65,7 +65,16 @@ namespace Hake.Extension.DependencyInjection.Implementations.InternalImplementat
             ServiceDescriptor descriptor = descriptorPool[typeName];
             return descriptor;
         }
-
+        public bool TryGetDescriptor(Type serviceType, out ServiceDescriptor descriptor)
+        {
+            if(serviceType == null)
+            {
+                descriptor = null;
+                return false;
+            }
+            string typeName = serviceType.FullName;
+            return descriptorPool.TryGetValue(typeName, out descriptor);
+        }
         public IEnumerable<ServiceDescriptor> GetDescriptors()
         {
             return descriptorPool.Values;
@@ -86,5 +95,7 @@ namespace Hake.Extension.DependencyInjection.Implementations.InternalImplementat
             else
                 return false;
         }
+
+
     }
 }
