@@ -8,10 +8,26 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 {
     public static class ObjectFactory
     {
+        public static event EventHandler<MatchingParameterEventArgs> ParameterMatching;
+
         public static object CreateInstance(Type instanceType, params object[] extraParameters)
         {
             if (instanceType == null)
                 throw new ArgumentNullException(nameof(instanceType));
+            Type valueMapType = typeof(IReadOnlyDictionary<string, object>);
+            if(extraParameters.Length >= 1 && valueMapType.IsAssignableFrom(extraParameters[0].GetType()))
+            {
+                if(extraParameters.Length == 1)
+                {
+                    return CreateInstance(instanceType, extraParameters[0] as IReadOnlyDictionary<string, object>);
+                }
+                else
+                {
+                    object[] parameters = new object[extraParameters.Length - 1];
+                    Array.Copy(extraParameters, 1, parameters, 0, parameters.Length);
+                    return CreateInstance(instanceType, extraParameters[0] as IReadOnlyDictionary<string, object>, parameters);
+                }
+            }
 
             TypeInfo instanceTypeInfo = instanceType.GetTypeInfo();
 
@@ -97,6 +113,21 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 throw new ArgumentNullException(nameof(services));
             if (instanceType == null)
                 throw new ArgumentNullException(nameof(instanceType));
+
+            Type valueMapType = typeof(IReadOnlyDictionary<string, object>);
+            if (extraParameters.Length >= 1 && valueMapType.IsAssignableFrom(extraParameters[0].GetType()))
+            {
+                if (extraParameters.Length == 1)
+                {
+                    return CreateInstance(services, instanceType, extraParameters[0] as IReadOnlyDictionary<string, object>);
+                }
+                else
+                {
+                    object[] parameters = new object[extraParameters.Length - 1];
+                    Array.Copy(extraParameters, 1, parameters, 0, parameters.Length);
+                    return CreateInstance(services, instanceType, extraParameters[0] as IReadOnlyDictionary<string, object>, parameters);
+                }
+            }
 
             CheckInstanceTypeOrThrow(instanceType);
             if (instanceType.GetTypeInfo().IsPrimitive)
@@ -463,6 +494,21 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
 
+            Type valueMapType = typeof(IReadOnlyDictionary<string, object>);
+            if (extraParameters.Length >= 1 && valueMapType.IsAssignableFrom(extraParameters[0].GetType()))
+            {
+                if (extraParameters.Length == 1)
+                {
+                    return TryInvokeMethod(instance, method, extraParameters[0] as IReadOnlyDictionary<string, object>);
+                }
+                else
+                {
+                    object[] parameters = new object[extraParameters.Length - 1];
+                    Array.Copy(extraParameters, 1, parameters, 0, parameters.Length);
+                    return TryInvokeMethod(instance, method, extraParameters[0] as IReadOnlyDictionary<string, object>, parameters);
+                }
+            }
+
             object[] parameterValues;
             bool parameterMatchResult;
 
@@ -522,6 +568,21 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 throw new ArgumentNullException(nameof(instance));
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
+
+            Type valueMapType = typeof(IReadOnlyDictionary<string, object>);
+            if (extraParameters.Length >= 1 && valueMapType.IsAssignableFrom(extraParameters[0].GetType()))
+            {
+                if (extraParameters.Length == 1)
+                {
+                    return TryInvokeMethod(instance, method, extraParameters[0] as IReadOnlyDictionary<string, object>);
+                }
+                else
+                {
+                    object[] parameters = new object[extraParameters.Length - 1];
+                    Array.Copy(extraParameters, 1, parameters, 0, parameters.Length);
+                    return TryInvokeMethod(instance, method, extraParameters[0] as IReadOnlyDictionary<string, object>, parameters);
+                }
+            }
 
             object[] parameterValues;
             bool parameterMatchResult;
@@ -629,23 +690,53 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 currentMatchResult = false;
                 currentMatchedValue = null;
 
-                // match extra parameters
-                for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
+                // invoke event
+                MatchingParameterEventArgs matchargs = new MatchingParameterEventArgs(parameter, null, extraParameters, null);
+                ParameterMatching?.Invoke(null, matchargs);
+                currentMatchResult = matchargs.Handled;
+                if (currentMatchResult)
                 {
-                    if (extraParameterUsed[searchIndex] == true)
-                        continue;
-
-                    extraParamType = extraParameters[searchIndex].GetType();
-                    if (parameter.ParameterType.IsAssignableFrom(extraParamType) == true)
+                    currentMatchedValue = matchargs.Value;
+                    if (matchargs.Value != null)
                     {
-                        currentMatchResult = true;
-                        currentMatchedValue = extraParameters[searchIndex];
-                        extraParameterUsed[searchIndex] = true;
-                        if (searchIndex == matchExtraStart)
-                            matchExtraStart++;
-                        if (searchIndex == matchExtraEnd)
-                            matchExtraEnd--;
-                        break;
+                        for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
+                        {
+                            if (extraParameterUsed[searchIndex] == true)
+                                continue;
+
+                            if (ReferenceEquals(matchargs.Value, (extraParameters[searchIndex])))
+                            {
+                                extraParameterUsed[searchIndex] = true;
+                                if (searchIndex == matchExtraStart)
+                                    matchExtraStart++;
+                                if (searchIndex == matchExtraEnd)
+                                    matchExtraEnd--;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // match extra parameters
+                if (currentMatchResult == false)
+                {
+                    for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
+                    {
+                        if (extraParameterUsed[searchIndex] == true)
+                            continue;
+
+                        extraParamType = extraParameters[searchIndex].GetType();
+                        if (parameter.ParameterType.IsAssignableFrom(extraParamType) == true)
+                        {
+                            currentMatchResult = true;
+                            currentMatchedValue = extraParameters[searchIndex];
+                            extraParameterUsed[searchIndex] = true;
+                            if (searchIndex == matchExtraStart)
+                                matchExtraStart++;
+                            if (searchIndex == matchExtraEnd)
+                                matchExtraEnd--;
+                            break;
+                        }
                     }
                 }
 
@@ -740,8 +831,36 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 currentMatchResult = false;
                 currentMatchedValue = null;
 
+                // invoke event
+                MatchingParameterEventArgs matchargs = new MatchingParameterEventArgs(parameter, null, extraParameters, valueMap);
+                ParameterMatching?.Invoke(null, matchargs);
+                currentMatchResult = matchargs.Handled;
+                if (currentMatchResult)
+                {
+                    currentMatchedValue = matchargs.Value;
+                    if (matchargs.Value != null)
+                    {
+                        for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
+                        {
+                            if (extraParameterUsed[searchIndex] == true)
+                                continue;
+
+                            if (ReferenceEquals(matchargs.Value, (extraParameters[searchIndex])))
+                            {
+                                extraParameterUsed[searchIndex] = true;
+                                if (searchIndex == matchExtraStart)
+                                    matchExtraStart++;
+                                if (searchIndex == matchExtraEnd)
+                                    matchExtraEnd--;
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 // match value maps
-                currentMatchResult = TryMatchParameterFromDictionary(parameter, valueMap, out currentMatchedValue);
+                if (currentMatchResult == false)
+                    currentMatchResult = TryMatchParameterFromDictionary(parameter, valueMap, out currentMatchedValue);
 
                 // match extra parameters
                 if (currentMatchResult == false)
@@ -851,8 +970,35 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 currentMatchResult = false;
                 currentMatchedValue = null;
 
+                // invoke event
+                MatchingParameterEventArgs matchargs = new MatchingParameterEventArgs(parameter, services, extraParameters, null);
+                ParameterMatching?.Invoke(null, matchargs);
+                currentMatchResult = matchargs.Handled;
+                if (currentMatchResult)
+                {
+                    currentMatchedValue = matchargs.Value;
+                    if (matchargs.Value != null)
+                    {
+                        for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
+                        {
+                            if (extraParameterUsed[searchIndex] == true)
+                                continue;
+
+                            if (ReferenceEquals(matchargs.Value, (extraParameters[searchIndex])))
+                            {
+                                extraParameterUsed[searchIndex] = true;
+                                if (searchIndex == matchExtraStart)
+                                    matchExtraStart++;
+                                if (searchIndex == matchExtraEnd)
+                                    matchExtraEnd--;
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 // match extra parameters
-                if (extraParameters != null)
+                if (currentMatchResult == false && extraParameters != null)
                 {
                     for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
                     {
@@ -973,8 +1119,36 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 currentMatchResult = false;
                 currentMatchedValue = null;
 
+                // invoke event
+                MatchingParameterEventArgs matchargs = new MatchingParameterEventArgs(parameter, services, extraParameters, valueMap);
+                ParameterMatching?.Invoke(null, matchargs);
+                currentMatchResult = matchargs.Handled;
+                if (currentMatchResult)
+                {
+                    currentMatchedValue = matchargs.Value;
+                    if (matchargs.Value != null)
+                    {
+                        for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
+                        {
+                            if (extraParameterUsed[searchIndex] == true)
+                                continue;
+
+                            if (ReferenceEquals(matchargs.Value, (extraParameters[searchIndex])))
+                            {
+                                extraParameterUsed[searchIndex] = true;
+                                if (searchIndex == matchExtraStart)
+                                    matchExtraStart++;
+                                if (searchIndex == matchExtraEnd)
+                                    matchExtraEnd--;
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 // match value maps
-                currentMatchResult = TryMatchParameterFromDictionary(parameter, valueMap, out currentMatchedValue);
+                if (currentMatchResult == false)
+                    currentMatchResult = TryMatchParameterFromDictionary(parameter, valueMap, out currentMatchedValue);
 
                 // match extra parameters
                 if (currentMatchResult == false)
