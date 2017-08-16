@@ -45,12 +45,12 @@ namespace Test
 
             descA.EnterScope();
             Assert.AreSame(instance, descA.GetInstance());
-            descA.ExitScope();
+            descA.LeaveScope();
             Assert.AreSame(instance, descA.GetInstance());
 
             descC.EnterScope();
             Assert.AreSame(tempInstance, descC.GetInstance());
-            descC.ExitScope();
+            descC.LeaveScope();
             Assert.AreSame(tempInstance, descC.GetInstance());
 
             ServiceDescriptor descD = ServiceDescriptor.Singleton<IFake, FakeA>();
@@ -81,7 +81,7 @@ namespace Test
             Assert.AreSame(instance, descA.GetInstance());
             descA.EnterScope();
             Assert.AreSame(instance, descA.GetInstance());
-            descA.ExitScope();
+            descA.LeaveScope();
             Assert.AreNotSame(instance, descA.GetInstance());
             Assert.AreEqual(4, (descA.GetInstance() as Int).Value);
         }

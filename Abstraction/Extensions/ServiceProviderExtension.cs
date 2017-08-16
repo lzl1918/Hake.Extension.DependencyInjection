@@ -57,11 +57,11 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
         public static object CreateInstance(this IServiceProvider provider, Type instanceType, params object[] parameters)
         {
-            return ObjectFactory.CreateInstance(provider, instanceType, parameters);
+            return ObjectFactory.CreateInstance(instanceType, provider, parameters);
         }
         public static object CreateInstance(this IServiceProvider provider, Type instanceType, IReadOnlyDictionary<string, object> valueMap, params object[] parameters)
         {
-            return ObjectFactory.CreateInstance(provider, instanceType, valueMap, parameters);
+            return ObjectFactory.CreateInstance(instanceType, provider, valueMap, parameters);
         }
         public static T CreateInstance<T>(this IServiceProvider provider, params object[] parameters)
         {

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Text;
@@ -8,66 +9,22 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 {
     public static class ObjectFactory
     {
-        public static event EventHandler<MatchingParameterEventArgs> ParameterMatching;
+        [Obsolete("not implemented event", true)]
+        public static event EventHandler<ParameterMatchingEventArgs> ParameterMatching;
 
-        public static object CreateInstance(Type instanceType, params object[] extraParameters)
+        [Obsolete("not implemented method", true)]
+        internal static ParameterMatchingEventArgs RaiseEvent(ParameterInfo parameter, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, object[] parameters)
         {
-            if (instanceType == null)
-                throw new ArgumentNullException(nameof(instanceType));
-            Type valueMapType = typeof(IReadOnlyDictionary<string, object>);
-            if(extraParameters.Length >= 1 && valueMapType.IsAssignableFrom(extraParameters[0].GetType()))
-            {
-                if(extraParameters.Length == 1)
-                {
-                    return CreateInstance(instanceType, extraParameters[0] as IReadOnlyDictionary<string, object>);
-                }
-                else
-                {
-                    object[] parameters = new object[extraParameters.Length - 1];
-                    Array.Copy(extraParameters, 1, parameters, 0, parameters.Length);
-                    return CreateInstance(instanceType, extraParameters[0] as IReadOnlyDictionary<string, object>, parameters);
-                }
-            }
+            if (ParameterMatching == null)
+                return null;
 
-            TypeInfo instanceTypeInfo = instanceType.GetTypeInfo();
-
-            CheckInstanceTypeOrThrow(instanceType);
-            if (instanceType.GetTypeInfo().IsPrimitive)
-            {
-                foreach (object extraParam in extraParameters)
-                    if (instanceType.IsAssignableFrom(extraParam.GetType()))
-                        return extraParam;
-            }
-
-            ConstructorInfo[] constructors = instanceType.GetConstructors();
-            foreach (ConstructorInfo constructor in constructors)
-            {
-                object[] constructParameterValues;
-                if (TryMatchMethodParameters(constructor, extraParameters, out constructParameterValues))
-                {
-                    try
-                    {
-                        object instance = constructor.Invoke(constructParameterValues);
-                        return instance;
-                    }
-                    catch (TargetInvocationException ex)
-                    {
-                        ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
-                        throw;
-                    }
-                }
-            }
-            throw new Exception("cannot find any constructor to initialize instance");
+            ParameterMatchingEventArgs args = new ParameterMatchingEventArgs(parameter, services, namedParameters, parameters);
+            ParameterMatching.Invoke(null, args);
+            return args;
         }
-        public static T CreateInstance<T>(params object[] extraParameters)
-        {
-            return (T)CreateInstance(typeof(T), extraParameters);
-        }
-        public static object CreateInstance(Type instanceType, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
-        {
-            if (valueMap == null)
-                return CreateInstance(instanceType, extraParameters);
 
+        public static object CreateInstance(Type instanceType, params object[] parameters)
+        {
             if (instanceType == null)
                 throw new ArgumentNullException(nameof(instanceType));
 
@@ -75,145 +32,299 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             if (instanceType.GetTypeInfo().IsPrimitive)
             {
                 object value;
-                if (valueMap.TryGetValue("value", out value) == true && instanceType.IsAssignableFrom(value.GetType()))
+                if (parameters.Length > 0 && TryFindBestMatchOfPrimitive(instanceType, parameters, out value))
                     return value;
-
-                foreach (object extraParam in extraParameters)
-                    if (instanceType.IsAssignableFrom(extraParam.GetType()))
-                        return extraParam;
+                throw new InvalidOperationException($"primitive type {instanceType.Name} has no constructor");
             }
 
-            ConstructorInfo[] constructors = instanceType.GetConstructors();
-            foreach (ConstructorInfo constructor in constructors)
+            ConstructorInfo[] constructors = instanceType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+            if (constructors.Length <= 0)
+                throw new InvalidOperationException($"cannot find any constructor to initialize instance of type {instanceType.Name}");
+
+            IEnumerable<ArgumentMatchedResult> matchResults = null;
+            if (parameters.Length > 0)
+                matchResults = constructors.Select(m => ArgumentMatchedResult.Match(m, parameters));
+            else
+                matchResults = constructors.Select(m => ArgumentMatchedResult.Match(m));
+
+            ArgumentMatchedResult matchResult = FindBestMatch(matchResults);
+            if (matchResult == null)
+                throw new InvalidOperationException($"cannot find any constructor of type {instanceType.Name} that matchs given parameters");
+
+            ConstructorInfo constructor = matchResult.Method as ConstructorInfo;
+            try
             {
-                object[] constructParameterValues;
-                if (TryMatchMethodParameters(constructor, valueMap, extraParameters, out constructParameterValues))
-                {
-                    try
-                    {
-                        object instance = constructor.Invoke(constructParameterValues);
-                        return instance;
-                    }
-                    catch (TargetInvocationException ex)
-                    {
-                        ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
-                        throw;
-                    }
-                }
+                object instance = constructor.Invoke(matchResult.Result);
+                return instance;
             }
-            throw new Exception("cannot find any constructor to initialize instance");
+            catch (TargetInvocationException ex)
+            {
+                ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
         }
-        public static T CreateInstance<T>(IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
+        public static T CreateInstance<T>(params object[] parameters)
         {
-            return (T)CreateInstance(typeof(T), valueMap, extraParameters);
+            return (T)CreateInstance(typeof(T), parameters);
         }
-        public static object CreateInstance(IServiceProvider services, Type instanceType, params object[] extraParameters)
+        public static object CreateInstance(Type instanceType, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
         {
+            if (namedParameters == null)
+                return CreateInstance(instanceType, parameters);
+            if (instanceType == null)
+                throw new ArgumentNullException(nameof(instanceType));
+
+            CheckInstanceTypeOrThrow(instanceType);
+            if (instanceType.GetTypeInfo().IsPrimitive)
+            {
+                object value;
+                if (TryFindValueOptionOfPrimitive(instanceType, namedParameters, out value))
+                    return value;
+                if (parameters.Length > 0 && TryFindBestMatchOfPrimitive(instanceType, parameters, out value))
+                    return value;
+                if (TryFindBestMatchOfPrimitive(instanceType, namedParameters, out value))
+                    return value;
+                throw new InvalidOperationException($"primitive type {instanceType.Name} has no constructor");
+            }
+
+            ConstructorInfo[] constructors = instanceType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+            if (constructors.Length <= 0)
+                throw new InvalidOperationException($"cannot find any constructor to initialize instance of type {instanceType.Name}");
+
+            IEnumerable<ArgumentMatchedResult> matchResults = null;
+            if (parameters.Length > 0)
+                matchResults = constructors.Select(m => ArgumentMatchedResult.Match(m, namedParameters, parameters));
+            else
+                matchResults = constructors.Select(m => ArgumentMatchedResult.Match(m, namedParameters));
+
+            ArgumentMatchedResult matchResult = FindBestMatch(matchResults);
+            if (matchResult == null)
+                throw new InvalidOperationException($"cannot find any constructor of type {instanceType.Name} that matchs given parameters");
+
+            ConstructorInfo constructor = matchResult.Method as ConstructorInfo;
+            try
+            {
+                object instance = constructor.Invoke(matchResult.Result);
+                return instance;
+            }
+            catch (TargetInvocationException ex)
+            {
+                ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
+        }
+        public static T CreateInstance<T>(IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
+        {
+            return (T)CreateInstance(typeof(T), namedParameters, parameters);
+        }
+        public static object CreateInstance(Type instanceType, IServiceProvider services, params object[] parameters)
+        {
+            if (services == null)
+                return CreateInstance(instanceType, parameters);
+            if (instanceType == null)
+                throw new ArgumentNullException(nameof(instanceType));
+
+            CheckInstanceTypeOrThrow(instanceType);
+
+            if (instanceType.GetTypeInfo().IsPrimitive)
+            {
+                object value;
+                if (parameters.Length > 0 && TryFindBestMatchOfPrimitive(instanceType, parameters, out value))
+                    return value;
+                throw new InvalidOperationException($"primitive type {instanceType.Name} has no constructor");
+            }
+
+            ConstructorInfo[] constructors = instanceType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+            if (constructors.Length <= 0)
+                throw new InvalidOperationException($"cannot find any constructor to initialize instance of type {instanceType.Name}");
+
+            IEnumerable<ArgumentMatchedResult> matchResults = null;
+            if (parameters.Length > 0)
+                matchResults = constructors.Select(m => ArgumentMatchedResult.Match(m, services, parameters));
+            else
+                matchResults = constructors.Select(m => ArgumentMatchedResult.Match(m, services));
+
+            ArgumentMatchedResult matchResult = FindBestMatch(matchResults);
+            if (matchResult == null)
+                throw new InvalidOperationException($"cannot find any constructor of type {instanceType.Name} that matchs given parameters");
+
+            ConstructorInfo constructor = matchResult.Method as ConstructorInfo;
+            try
+            {
+                object instance = constructor.Invoke(matchResult.Result);
+                return instance;
+            }
+            catch (TargetInvocationException ex)
+            {
+                ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
+        }
+        public static T CreateInstance<T>(IServiceProvider services, params object[] parameters)
+        {
+            return (T)CreateInstance(typeof(T), services, parameters);
+        }
+        public static object CreateInstance(Type instanceType, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
+        {
+            if (namedParameters == null)
+                return CreateInstance(instanceType, services, parameters);
             if (services == null)
                 throw new ArgumentNullException(nameof(services));
             if (instanceType == null)
                 throw new ArgumentNullException(nameof(instanceType));
 
-            Type valueMapType = typeof(IReadOnlyDictionary<string, object>);
-            if (extraParameters.Length >= 1 && valueMapType.IsAssignableFrom(extraParameters[0].GetType()))
-            {
-                if (extraParameters.Length == 1)
-                {
-                    return CreateInstance(services, instanceType, extraParameters[0] as IReadOnlyDictionary<string, object>);
-                }
-                else
-                {
-                    object[] parameters = new object[extraParameters.Length - 1];
-                    Array.Copy(extraParameters, 1, parameters, 0, parameters.Length);
-                    return CreateInstance(services, instanceType, extraParameters[0] as IReadOnlyDictionary<string, object>, parameters);
-                }
-            }
-
-            CheckInstanceTypeOrThrow(instanceType);
-            if (instanceType.GetTypeInfo().IsPrimitive)
-            {
-                foreach (object extraParam in extraParameters)
-                    if (instanceType.IsAssignableFrom(extraParam.GetType()))
-                        return extraParam;
-                object value;
-                if (services.TryGetService(instanceType, out value) == true)
-                    return value;
-            }
-
-            ConstructorInfo[] constructors = instanceType.GetConstructors();
-            foreach (ConstructorInfo constructor in constructors)
-            {
-                object[] constructParameterValues;
-                if (TryMatchMethodParameters(constructor, services, extraParameters, out constructParameterValues))
-                {
-                    try
-                    {
-                        object instance = constructor.Invoke(constructParameterValues);
-                        return instance;
-                    }
-                    catch (TargetInvocationException ex)
-                    {
-                        ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
-                        throw;
-                    }
-                }
-            }
-            throw new InvalidOperationException("cannot find any constructor to initialize instance");
-        }
-        public static T CreateInstance<T>(IServiceProvider services, params object[] extraParameters)
-        {
-            return (T)CreateInstance(services, typeof(T), extraParameters);
-        }
-        public static object CreateInstance(IServiceProvider services, Type instanceType, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
-        {
-            if (valueMap == null)
-                return CreateInstance(services, instanceType, extraParameters);
-
-            if (services == null)
-                throw new ArgumentNullException(nameof(services));
-            if (instanceType == null)
-                throw new ArgumentNullException(nameof(instanceType));
-
             CheckInstanceTypeOrThrow(instanceType);
             if (instanceType.GetTypeInfo().IsPrimitive)
             {
                 object value;
-                if (valueMap.TryGetValue("value", out value) == true && instanceType.IsAssignableFrom(value.GetType()))
+                if (TryFindValueOptionOfPrimitive(instanceType, namedParameters, out value))
                     return value;
-
-                foreach (object extraParam in extraParameters)
-                    if (instanceType.IsAssignableFrom(extraParam.GetType()))
-                        return extraParam;
-
-                if (services.TryGetService(instanceType, out value) == true)
+                if (parameters.Length > 0 && TryFindBestMatchOfPrimitive(instanceType, parameters, out value))
                     return value;
+                if (TryFindBestMatchOfPrimitive(instanceType, namedParameters, out value))
+                    return value;
+                throw new InvalidOperationException($"primitive type {instanceType.Name} has no constructor");
             }
 
-            ConstructorInfo[] constructors = instanceType.GetConstructors();
-            foreach (ConstructorInfo constructor in constructors)
+            ConstructorInfo[] constructors = instanceType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+            if (constructors.Length <= 0)
+                throw new InvalidOperationException($"cannot find any constructor to initialize instance of type {instanceType.Name}");
+
+            IEnumerable<ArgumentMatchedResult> matchResults = null;
+            if (parameters.Length > 0)
+                matchResults = constructors.Select(m => ArgumentMatchedResult.Match(m, services, namedParameters, parameters));
+            else
+                matchResults = constructors.Select(m => ArgumentMatchedResult.Match(m, services, namedParameters));
+
+            ArgumentMatchedResult matchResult = FindBestMatch(matchResults);
+            if (matchResult == null)
+                throw new InvalidOperationException($"cannot find any constructor of type {instanceType.Name} that matchs given parameters");
+
+            ConstructorInfo constructor = matchResult.Method as ConstructorInfo;
+            try
             {
-                object[] constructParameterValues;
-                if (TryMatchMethodParameters(constructor, services, valueMap, extraParameters, out constructParameterValues))
+                object instance = constructor.Invoke(matchResult.Result);
+                return instance;
+            }
+            catch (TargetInvocationException ex)
+            {
+                ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                throw;
+            }
+        }
+        public static T CreateInstance<T>(IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
+        {
+            return (T)CreateInstance(typeof(T), services, namedParameters, parameters);
+        }
+
+        private static bool TryFindBestMatchOfPrimitive(Type type, object[] parameters, out object value)
+        {
+            int paramCount = parameters.Length;
+            TypeInfo[] paramTypes = new TypeInfo[paramCount];
+            TypeInfo currentTypeInfo;
+            Type currentType;
+            object paramValue;
+            for (int i = 0; i < paramCount; i++)
+            {
+                paramValue = parameters[i];
+                currentType = paramValue.GetType();
+                currentTypeInfo = currentType.GetTypeInfo();
+
+                if (currentType.Equals(type))
+                {
+                    value = paramValue;
+                    return true;
+                }
+
+                paramTypes[i] = currentTypeInfo;
+            }
+            for (int i = 0; i < paramCount; i++)
+            {
+                if (paramTypes[i].GetInterface("IConvertible") != null)
                 {
                     try
                     {
-                        object instance = constructor.Invoke(constructParameterValues);
-                        return instance;
+                        value = Convert.ChangeType(parameters[i], type);
+                        return true;
                     }
-                    catch (TargetInvocationException ex)
+                    catch
                     {
-                        ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
-                        throw;
                     }
                 }
             }
-            throw new Exception("cannot find any constructor to initialize instance");
+            value = null;
+            return false;
         }
-        public static T CreateInstance<T>(IServiceProvider services, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
+        private static bool TryFindBestMatchOfPrimitive(Type type, IReadOnlyDictionary<string, object> parameters, out object value)
         {
-            return (T)CreateInstance(services, typeof(T), valueMap, extraParameters);
-        }
+            TypeInfo currentTypeInfo;
+            Type currentType;
+            object paramValue;
+            int paramCount = parameters.Count;
+            TypeInfo[] paramTypes = new TypeInfo[paramCount];
+            object[] paramValues = new object[paramCount];
+            int i = 0;
+            foreach (var pair in parameters)
+            {
+                paramValue = pair.Value;
+                currentType = paramValue.GetType();
+                currentTypeInfo = currentType.GetTypeInfo();
+                if (currentType.Equals(type))
+                {
+                    value = paramValue;
+                    return true;
+                }
 
+                paramTypes[i] = currentTypeInfo;
+                paramValues[i] = paramValue;
+                i++;
+            }
+            for (i = 0; i < paramCount; i++)
+            {
+                if (paramTypes[i].GetInterface("IConvertible") != null)
+                {
+                    try
+                    {
+                        value = Convert.ChangeType(paramValues[i], type);
+                        return true;
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            value = null;
+            return false;
+        }
+        private static bool TryFindValueOptionOfPrimitive(Type type, IReadOnlyDictionary<string, object> parameters, out object value)
+        {
+            TypeInfo currentTypeInfo;
+            Type currentType;
+            object paramValue;
+            if (parameters.TryGetValue("value", out paramValue))
+            {
+                currentType = paramValue.GetType();
+                currentTypeInfo = currentType.GetTypeInfo();
+                if (currentType.Equals(type))
+                {
+                    value = paramValue;
+                    return true;
+                }
+                else if (currentTypeInfo.GetInterface("IConvertible") != null)
+                {
+                    try
+                    {
+                        value = Convert.ChangeType(paramValue, type);
+                        return true;
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            value = null;
+            return false;
+        }
         private static void CheckInstanceTypeOrThrow(Type instanceType)
         {
             TypeInfo instanceTypeInfo = instanceType.GetTypeInfo();
@@ -233,7 +344,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         }
 
 
-        public static object InvokeMethod(object instance, string methodName, params object[] extraParameters)
+        public static object InvokeMethod(object instance, string methodName, params object[] parameters)
         {
             if (instance == null)
                 throw new ArgumentNullException(nameof(instance));
@@ -241,153 +352,115 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 throw new ArgumentNullException(nameof(methodName));
 
             Type instanceType = instance.GetType();
-            InvokeMethodResult result;
-            foreach (MethodInfo method in instanceType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (method.Name != methodName)
-                    continue;
+            MethodInfo[] methods = instanceType.GetMember(methodName, BindingFlags.Public | BindingFlags.Instance).Where(m => m is MethodInfo).Select(m => m as MethodInfo).ToArray();
+            if (methods.Length <= 0)
+                throw new InvalidOperationException("cannot find method {methodName} of instance {instance}");
 
-                result = TryInvokeMethod(instance, method, extraParameters);
-                if (result.IsExecuted == false)
-                    continue;
-                if (result.IsExecutionSucceeded == false)
-                    throw result.Exception;
-                if (result.HasReturnValueBySignature == false)
-                    return null;
-                else
-                    return result.ReturnValue;
-            }
-            throw new InvalidOperationException($"cannot find any matched method {methodName} of instance {instance}");
+            IEnumerable<ArgumentMatchedResult> matchResults = null;
+            if (parameters.Length > 0)
+                matchResults = methods.Select(m => ArgumentMatchedResult.Match(m, parameters));
+            else
+                matchResults = methods.Select(m => ArgumentMatchedResult.Match(m));
+
+            ArgumentMatchedResult matchResult = FindBestMatch(matchResults);
+            if (matchResult == null)
+                throw new InvalidOperationException($"cannot find any method {methods[0].Name} of instance {instance} that matchs given parameters");
+            InvokeMethodResult result = TryInvokeMethod(instance, matchResult);
+            if (result.IsExecutionSucceeded == false)
+                throw result.Exception;
+            if (result.HasReturnValueBySignature == false)
+                return null;
+            else
+                return result.ReturnValue;
         }
-        public static object InvokeMethod(object instance, string methodName, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
+        public static object InvokeMethod(object instance, string methodName, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
         {
             if (instance == null)
                 throw new ArgumentNullException(nameof(instance));
             if (methodName == null)
                 throw new ArgumentNullException(nameof(methodName));
-            if (valueMap == null)
-                return InvokeMethod(instance, methodName, extraParameters);
+            if (namedParameters == null)
+                return InvokeMethod(instance, methodName, parameters);
 
             Type instanceType = instance.GetType();
-            InvokeMethodResult result;
-            foreach (MethodInfo method in instanceType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (method.Name != methodName)
-                    continue;
+            MethodInfo[] methods = instanceType.GetMember(methodName, BindingFlags.Public | BindingFlags.Instance).Where(m => m is MethodInfo).Select(m => m as MethodInfo).ToArray();
+            if (methods.Length <= 0)
+                throw new InvalidOperationException("cannot find method {methodName} of instance {instance}");
 
-                result = TryInvokeMethod(instance, method, valueMap, extraParameters);
-                if (result.IsExecuted == false)
-                    continue;
-                if (result.IsExecutionSucceeded == false)
-                    throw result.Exception;
-                if (result.HasReturnValueBySignature == false)
-                    return null;
-                else
-                    return result.ReturnValue;
-            }
-            throw new InvalidOperationException($"cannot find any matched method {methodName} of instance {instance}");
+            IEnumerable<ArgumentMatchedResult> matchResults = null;
+            if (parameters.Length > 0)
+                matchResults = methods.Select(m => ArgumentMatchedResult.Match(m, namedParameters, parameters));
+            else
+                matchResults = methods.Select(m => ArgumentMatchedResult.Match(m, namedParameters));
+
+            ArgumentMatchedResult matchResult = FindBestMatch(matchResults);
+            if (matchResult == null)
+                throw new InvalidOperationException($"cannot find any method {methods[0].Name} of instance {instance} that matchs given parameters");
+            InvokeMethodResult result = TryInvokeMethod(instance, matchResult);
+            if (result.IsExecutionSucceeded == false)
+                throw result.Exception;
+            if (result.HasReturnValueBySignature == false)
+                return null;
+            else
+                return result.ReturnValue;
         }
-        public static object InvokeMethod(object instance, string methodName, IServiceProvider services, params object[] extraParameters)
+        public static object InvokeMethod(object instance, string methodName, IServiceProvider services, params object[] parameters)
         {
             if (instance == null)
                 throw new ArgumentNullException(nameof(instance));
             if (methodName == null)
                 throw new ArgumentNullException(nameof(methodName));
             if (services == null)
-                return InvokeMethod(instance, methodName, extraParameters);
+                return InvokeMethod(instance, methodName, parameters);
 
             Type instanceType = instance.GetType();
-            InvokeMethodResult result;
-            foreach (MethodInfo method in instanceType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (method.Name != methodName)
-                    continue;
+            MethodInfo[] methods = instanceType.GetMember(methodName, BindingFlags.Public | BindingFlags.Instance).Where(m => m is MethodInfo).Select(m => m as MethodInfo).ToArray();
+            if (methods.Length <= 0)
+                throw new InvalidOperationException("cannot find method {methodName} of instance {instance}");
 
-                result = TryInvokeMethod(instance, method, services, extraParameters);
-                if (result.IsExecuted == false)
-                    continue;
-                if (result.IsExecutionSucceeded == false)
-                    throw result.Exception;
-                if (result.HasReturnValueBySignature == false)
-                    return null;
-                else
-                    return result.ReturnValue;
-            }
-            throw new InvalidOperationException($"cannot find any matched method {methodName} of instance {instance}");
+            IEnumerable<ArgumentMatchedResult> matchResults = null;
+            if (parameters.Length > 0)
+                matchResults = methods.Select(m => ArgumentMatchedResult.Match(m, services, parameters));
+            else
+                matchResults = methods.Select(m => ArgumentMatchedResult.Match(m, services));
+
+            ArgumentMatchedResult matchResult = FindBestMatch(matchResults);
+            if (matchResult == null)
+                throw new InvalidOperationException($"cannot find any method {methods[0].Name} of instance {instance} that matchs given parameters");
+            InvokeMethodResult result = TryInvokeMethod(instance, matchResult);
+            if (result.IsExecutionSucceeded == false)
+                throw result.Exception;
+            if (result.HasReturnValueBySignature == false)
+                return null;
+            else
+                return result.ReturnValue;
         }
-        public static object InvokeMethod(object instance, string methodName, IServiceProvider services, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
+        public static object InvokeMethod(object instance, string methodName, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
         {
             if (instance == null)
                 throw new ArgumentNullException(nameof(instance));
             if (methodName == null)
                 throw new ArgumentNullException(nameof(methodName));
-            if (valueMap == null)
-                return InvokeMethod(instance, methodName, services, extraParameters);
+            if (namedParameters == null)
+                return InvokeMethod(instance, methodName, services, parameters);
             if (services == null)
-                return InvokeMethod(instance, methodName, valueMap, extraParameters);
+                return InvokeMethod(instance, methodName, namedParameters, parameters);
 
             Type instanceType = instance.GetType();
-            InvokeMethodResult result;
-            foreach (MethodInfo method in instanceType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (method.Name != methodName)
-                    continue;
+            MethodInfo[] methods = instanceType.GetMember(methodName, BindingFlags.Public | BindingFlags.Instance).Where(m => m is MethodInfo).Select(m => m as MethodInfo).ToArray();
+            if (methods.Length <= 0)
+                throw new InvalidOperationException("cannot find method {methodName} of instance {instance}");
 
-                result = TryInvokeMethod(instance, method, services, valueMap, extraParameters);
-                if (result.IsExecuted == false)
-                    continue;
-                if (result.IsExecutionSucceeded == false)
-                    throw result.Exception;
-                if (result.HasReturnValueBySignature == false)
-                    return null;
-                else
-                    return result.ReturnValue;
-            }
-            throw new InvalidOperationException($"cannot find any matched method {methodName} of instance {instance}");
-        }
-        public static T InvokeMethod<T>(object instance, string methodName, params object[] extraParameters)
-        {
-            object result = InvokeMethod(instance, methodName, extraParameters);
-            if (result == null)
-                return default(T);
+            IEnumerable<ArgumentMatchedResult> matchResults = null;
+            if (parameters.Length > 0)
+                matchResults = methods.Select(m => ArgumentMatchedResult.Match(m, services, namedParameters, parameters));
             else
-                return (T)result;
-        }
-        public static T InvokeMethod<T>(object instance, string methodName, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
-        {
-            object result = InvokeMethod(instance, methodName, valueMap, extraParameters);
-            if (result == null)
-                return default(T);
-            else
-                return (T)result;
-        }
-        public static T InvokeMethod<T>(object instance, string methodName, IServiceProvider services, params object[] extraParameters)
-        {
-            object result = InvokeMethod(instance, methodName, services, extraParameters);
-            if (result == null)
-                return default(T);
-            else
-                return (T)result;
-        }
-        public static T InvokeMethod<T>(object instance, string methodName, IServiceProvider services, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
-        {
-            object result = InvokeMethod(instance, methodName, services, valueMap, extraParameters);
-            if (result == null)
-                return default(T);
-            else
-                return (T)result;
-        }
+                matchResults = methods.Select(m => ArgumentMatchedResult.Match(m, services, namedParameters));
 
-        public static object InvokeMethod(object instance, MethodInfo method, params object[] extraParameters)
-        {
-            if (instance == null)
-                throw new ArgumentNullException(nameof(instance));
-            if (method == null)
-                throw new ArgumentNullException(nameof(method));
-
-            InvokeMethodResult result = TryInvokeMethod(instance, method, extraParameters);
-            if (result.IsExecuted == false)
-                throw new Exception("cannot invoke method due to insufficient parameters");
+            ArgumentMatchedResult matchResult = FindBestMatch(matchResults);
+            if (matchResult == null)
+                throw new InvalidOperationException($"cannot find any method {methods[0].Name} of instance {instance} that matchs given parameters");
+            InvokeMethodResult result = TryInvokeMethod(instance, matchResult);
             if (result.IsExecutionSucceeded == false)
                 throw result.Exception;
             if (result.HasReturnValueBySignature == false)
@@ -395,18 +468,55 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             else
                 return result.ReturnValue;
         }
-        public static object InvokeMethod(object instance, MethodInfo method, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
+
+        public static T InvokeMethod<T>(object instance, string methodName, params object[] parameters)
+        {
+            object result = InvokeMethod(instance, methodName, parameters);
+            if (result == null)
+                return default(T);
+            else
+                return (T)result;
+        }
+        public static T InvokeMethod<T>(object instance, string methodName, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
+        {
+            object result = InvokeMethod(instance, methodName, namedParameters, parameters);
+            if (result == null)
+                return default(T);
+            else
+                return (T)result;
+        }
+        public static T InvokeMethod<T>(object instance, string methodName, IServiceProvider services, params object[] parameters)
+        {
+            object result = InvokeMethod(instance, methodName, services, parameters);
+            if (result == null)
+                return default(T);
+            else
+                return (T)result;
+        }
+        public static T InvokeMethod<T>(object instance, string methodName, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
+        {
+            object result = InvokeMethod(instance, methodName, services, namedParameters, parameters);
+            if (result == null)
+                return default(T);
+            else
+                return (T)result;
+        }
+
+        public static object InvokeMethod(object instance, MethodInfo method, params object[] parameters)
         {
             if (instance == null)
                 throw new ArgumentNullException(nameof(instance));
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
-            if (valueMap == null)
-                return InvokeMethod(instance, method, extraParameters);
 
-            InvokeMethodResult result = TryInvokeMethod(instance, method, valueMap, extraParameters);
+            ArgumentMatchedResult matchResult = null;
+            if (parameters.Length > 0)
+                matchResult = ArgumentMatchedResult.Match(method, parameters);
+            else
+                matchResult = ArgumentMatchedResult.Match(method);
+            InvokeMethodResult result = TryInvokeMethod(instance, matchResult);
             if (result.IsExecuted == false)
-                throw new Exception("cannot invoke method due to insufficient parameters");
+                throw new InvalidOperationException("cannot invoke method due to insufficient parameters");
             if (result.IsExecutionSucceeded == false)
                 throw result.Exception;
             if (result.HasReturnValueBySignature == false)
@@ -414,18 +524,23 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             else
                 return result.ReturnValue;
         }
-        public static object InvokeMethod(object instance, MethodInfo method, IServiceProvider services, params object[] extraParameters)
+        public static object InvokeMethod(object instance, MethodInfo method, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
         {
             if (instance == null)
                 throw new ArgumentNullException(nameof(instance));
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
-            if (services == null)
-                return InvokeMethod(instance, method, extraParameters);
+            if (namedParameters == null)
+                return InvokeMethod(instance, method, parameters);
 
-            InvokeMethodResult result = TryInvokeMethod(instance, method, services, extraParameters);
+            ArgumentMatchedResult matchResult = null;
+            if (parameters.Length > 0)
+                matchResult = ArgumentMatchedResult.Match(method, namedParameters, parameters);
+            else
+                matchResult = ArgumentMatchedResult.Match(method, namedParameters);
+            InvokeMethodResult result = TryInvokeMethod(instance, matchResult);
             if (result.IsExecuted == false)
-                throw new Exception("cannot invoke method due to insufficient parameters");
+                throw new InvalidOperationException("cannot invoke method due to insufficient parameters");
             if (result.IsExecutionSucceeded == false)
                 throw result.Exception;
             if (result.HasReturnValueBySignature == false)
@@ -433,20 +548,23 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             else
                 return result.ReturnValue;
         }
-        public static object InvokeMethod(object instance, MethodInfo method, IServiceProvider services, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
+        public static object InvokeMethod(object instance, MethodInfo method, IServiceProvider services, params object[] parameters)
         {
             if (instance == null)
                 throw new ArgumentNullException(nameof(instance));
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
-            if (valueMap == null)
-                return InvokeMethod(instance, method, services, extraParameters);
             if (services == null)
-                return InvokeMethod(instance, method, valueMap, extraParameters);
+                return InvokeMethod(instance, method, parameters);
 
-            InvokeMethodResult result = TryInvokeMethod(instance, method, services, valueMap, extraParameters);
+            ArgumentMatchedResult matchResult = null;
+            if (parameters.Length > 0)
+                matchResult = ArgumentMatchedResult.Match(method, services, parameters);
+            else
+                matchResult = ArgumentMatchedResult.Match(method, services);
+            InvokeMethodResult result = TryInvokeMethod(instance, matchResult);
             if (result.IsExecuted == false)
-                throw new Exception("cannot invoke method due to insufficient parameters");
+                throw new InvalidOperationException("cannot invoke method due to insufficient parameters");
             if (result.IsExecutionSucceeded == false)
                 throw result.Exception;
             if (result.HasReturnValueBySignature == false)
@@ -454,787 +572,106 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             else
                 return result.ReturnValue;
         }
-        public static T InvokeMethod<T>(object instance, MethodInfo method, params object[] extraParameters)
-        {
-            object result = InvokeMethod(instance, method, extraParameters);
-            if (result == null)
-                return default(T);
-            else
-                return (T)result;
-        }
-        public static T InvokeMethod<T>(object instance, MethodInfo method, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
-        {
-            object result = InvokeMethod(instance, method, valueMap, extraParameters);
-            if (result == null)
-                return default(T);
-            else
-                return (T)result;
-        }
-        public static T InvokeMethod<T>(object instance, MethodInfo method, IServiceProvider services, params object[] extraParameters)
-        {
-            object result = InvokeMethod(instance, method, services, extraParameters);
-            if (result == null)
-                return default(T);
-            else
-                return (T)result;
-        }
-        public static T InvokeMethod<T>(object instance, MethodInfo method, IServiceProvider services, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
-        {
-            object result = InvokeMethod(instance, method, services, valueMap, extraParameters);
-            if (result == null)
-                return default(T);
-            else
-                return (T)result;
-        }
-
-        private static InvokeMethodResult TryInvokeMethod(object instance, MethodInfo method, params object[] extraParameters)
+        public static object InvokeMethod(object instance, MethodInfo method, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
         {
             if (instance == null)
                 throw new ArgumentNullException(nameof(instance));
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
-
-            Type valueMapType = typeof(IReadOnlyDictionary<string, object>);
-            if (extraParameters.Length >= 1 && valueMapType.IsAssignableFrom(extraParameters[0].GetType()))
-            {
-                if (extraParameters.Length == 1)
-                {
-                    return TryInvokeMethod(instance, method, extraParameters[0] as IReadOnlyDictionary<string, object>);
-                }
-                else
-                {
-                    object[] parameters = new object[extraParameters.Length - 1];
-                    Array.Copy(extraParameters, 1, parameters, 0, parameters.Length);
-                    return TryInvokeMethod(instance, method, extraParameters[0] as IReadOnlyDictionary<string, object>, parameters);
-                }
-            }
-
-            object[] parameterValues;
-            bool parameterMatchResult;
-
-            if (extraParameters == null)
-                extraParameters = new object[0];
-
-            parameterMatchResult = TryMatchMethodParameters(method, extraParameters, out parameterValues);
-            if (parameterMatchResult == false)
-                return new InvokeMethodResult(false, null, method.ReturnType, null);
-            try
-            {
-                object returnValue = method.Invoke(instance, parameterValues);
-                return new InvokeMethodResult(true, returnValue, method.ReturnType, null);
-            }
-            catch (TargetInvocationException ex)
-            {
-                return new InvokeMethodResult(true, null, method.ReturnType, ex.InnerException);
-            }
-            catch
-            {
-                throw;
-            }
-        }
-        private static InvokeMethodResult TryInvokeMethod(object instance, MethodInfo method, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
-        {
-            if (instance == null)
-                throw new ArgumentNullException(nameof(instance));
-            if (method == null)
-                throw new ArgumentNullException(nameof(method));
-
-            object[] parameterValues;
-            bool parameterMatchResult;
-
-            if (extraParameters == null)
-                extraParameters = new object[0];
-
-            parameterMatchResult = TryMatchMethodParameters(method, valueMap, extraParameters, out parameterValues);
-            if (parameterMatchResult == false)
-                return new InvokeMethodResult(false, null, method.ReturnType, null);
-            try
-            {
-                object returnValue = method.Invoke(instance, parameterValues);
-                return new InvokeMethodResult(true, returnValue, method.ReturnType, null);
-            }
-            catch (TargetInvocationException ex)
-            {
-                return new InvokeMethodResult(true, null, method.ReturnType, ex.InnerException);
-            }
-            catch
-            {
-                throw;
-            }
-        }
-        private static InvokeMethodResult TryInvokeMethod(object instance, MethodInfo method, IServiceProvider services, params object[] extraParameters)
-        {
-            if (instance == null)
-                throw new ArgumentNullException(nameof(instance));
-            if (method == null)
-                throw new ArgumentNullException(nameof(method));
-
-            Type valueMapType = typeof(IReadOnlyDictionary<string, object>);
-            if (extraParameters.Length >= 1 && valueMapType.IsAssignableFrom(extraParameters[0].GetType()))
-            {
-                if (extraParameters.Length == 1)
-                {
-                    return TryInvokeMethod(instance, method, extraParameters[0] as IReadOnlyDictionary<string, object>);
-                }
-                else
-                {
-                    object[] parameters = new object[extraParameters.Length - 1];
-                    Array.Copy(extraParameters, 1, parameters, 0, parameters.Length);
-                    return TryInvokeMethod(instance, method, extraParameters[0] as IReadOnlyDictionary<string, object>, parameters);
-                }
-            }
-
-            object[] parameterValues;
-            bool parameterMatchResult;
-
-            if (extraParameters == null)
-                extraParameters = new object[0];
-
-            parameterMatchResult = TryMatchMethodParameters(method, services, extraParameters, out parameterValues);
-            if (parameterMatchResult == false)
-                return new InvokeMethodResult(false, null, method.ReturnType, null);
-            try
-            {
-                object returnValue = method.Invoke(instance, parameterValues);
-                return new InvokeMethodResult(true, returnValue, method.ReturnType, null);
-            }
-            catch (TargetInvocationException ex)
-            {
-                return new InvokeMethodResult(true, null, method.ReturnType, ex.InnerException);
-            }
-            catch
-            {
-                throw;
-            }
-        }
-        private static InvokeMethodResult TryInvokeMethod(object instance, MethodInfo method, IServiceProvider services, IReadOnlyDictionary<string, object> valueMap, params object[] extraParameters)
-        {
-            if (instance == null)
-                throw new ArgumentNullException(nameof(instance));
-            if (method == null)
-                throw new ArgumentNullException(nameof(method));
-
-            object[] parameterValues;
-            bool parameterMatchResult;
-
-            if (extraParameters == null)
-                extraParameters = new object[0];
-
-            parameterMatchResult = TryMatchMethodParameters(method, services, valueMap, extraParameters, out parameterValues);
-            if (parameterMatchResult == false)
-                return new InvokeMethodResult(false, null, method.ReturnType, null);
-            try
-            {
-                object returnValue = method.Invoke(instance, parameterValues);
-                return new InvokeMethodResult(true, returnValue, method.ReturnType, null);
-            }
-            catch (TargetInvocationException ex)
-            {
-                return new InvokeMethodResult(true, null, method.ReturnType, ex.InnerException);
-            }
-            catch
-            {
-                throw;
-            }
-        }
-
-        private static bool TryMatchMethodParameters(MethodBase method, object[] extraParameters, out object[] matchedParameters)
-        {
-            if (method == null)
-            {
-                matchedParameters = null;
-                return false;
-            }
-
-            ParameterInfo[] parameterInfos = method.GetParameters();
-            object[] matchedValues = new object[parameterInfos.Length];
-            int extraParameterCount = extraParameters.Length;
-            bool[] extraParameterUsed = new bool[extraParameterCount];
-            bool parameterFullMatched = true;
-            bool currentMatchResult;
-            object currentMatchedValue;
-            int matchExtraStart = 0;
-            int matchExtraEnd = extraParameterCount - 1;
-            int searchIndex;
-            int currentParameterIndex = 0;
-            ParamArrayAttribute paramsAttribute;
-            Type paramsElementType;
-            Type extraParamType;
-            foreach (ParameterInfo parameter in parameterInfos)
-            {
-                paramsAttribute = parameter.GetCustomAttribute<ParamArrayAttribute>();
-                if (paramsAttribute != null && parameter.ParameterType.IsArray)
-                {
-                    List<object> passedParameters = new List<object>();
-                    paramsElementType = parameter.ParameterType.GetElementType();
-                    for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                    {
-                        if (extraParameterUsed[searchIndex] == true)
-                            continue;
-
-                        if (paramsElementType.IsAssignableFrom(extraParameters[searchIndex].GetType()))
-                        {
-                            extraParameterUsed[searchIndex] = true;
-                            if (searchIndex == matchExtraStart)
-                                matchExtraStart++;
-                            if (searchIndex == matchExtraEnd)
-                                matchExtraEnd--;
-                            passedParameters.Add(extraParameters[searchIndex]);
-                        }
-                    }
-                    matchedValues[currentParameterIndex] = passedParameters.ToArray();
-                    currentParameterIndex++;
-                    continue;
-                }
-
-                currentMatchResult = false;
-                currentMatchedValue = null;
-
-                // invoke event
-                MatchingParameterEventArgs matchargs = new MatchingParameterEventArgs(parameter, null, extraParameters, null);
-                ParameterMatching?.Invoke(null, matchargs);
-                currentMatchResult = matchargs.Handled;
-                if (currentMatchResult)
-                {
-                    currentMatchedValue = matchargs.Value;
-                    if (matchargs.Value != null)
-                    {
-                        for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                        {
-                            if (extraParameterUsed[searchIndex] == true)
-                                continue;
-
-                            if (ReferenceEquals(matchargs.Value, (extraParameters[searchIndex])))
-                            {
-                                extraParameterUsed[searchIndex] = true;
-                                if (searchIndex == matchExtraStart)
-                                    matchExtraStart++;
-                                if (searchIndex == matchExtraEnd)
-                                    matchExtraEnd--;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // match extra parameters
-                if (currentMatchResult == false)
-                {
-                    for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                    {
-                        if (extraParameterUsed[searchIndex] == true)
-                            continue;
-
-                        extraParamType = extraParameters[searchIndex].GetType();
-                        if (parameter.ParameterType.IsAssignableFrom(extraParamType) == true)
-                        {
-                            currentMatchResult = true;
-                            currentMatchedValue = extraParameters[searchIndex];
-                            extraParameterUsed[searchIndex] = true;
-                            if (searchIndex == matchExtraStart)
-                                matchExtraStart++;
-                            if (searchIndex == matchExtraEnd)
-                                matchExtraEnd--;
-                            break;
-                        }
-                    }
-                }
-
-                // match default values
-                if (currentMatchResult == false)
-                {
-                    if (parameter.HasDefaultValue)
-                    {
-                        currentMatchResult = true;
-                        currentMatchedValue = parameter.DefaultValue;
-                    }
-                }
-
-                // match failed
-                if (currentMatchResult == false)
-                {
-                    parameterFullMatched = false;
-                    break;
-                }
-                matchedValues[currentParameterIndex] = currentMatchedValue;
-                currentParameterIndex++;
-            }
-            if (parameterFullMatched == true)
-            {
-                matchedParameters = matchedValues;
-                return true;
-            }
-            else
-            {
-                matchedParameters = null;
-                return false;
-            }
-
-        }
-        private static bool TryMatchMethodParameters(MethodBase method, IReadOnlyDictionary<string, object> valueMap, object[] extraParameters, out object[] matchedParameters)
-        {
-            if (method == null)
-            {
-                matchedParameters = null;
-                return false;
-            }
-
-            ParameterInfo[] parameterInfos = method.GetParameters();
-            object[] matchedValues = new object[parameterInfos.Length];
-            int extraParameterCount = extraParameters.Length;
-            bool[] extraParameterUsed = new bool[extraParameterCount];
-            bool parameterFullMatched = true;
-            bool currentMatchResult;
-            object currentMatchedValue;
-            int matchExtraStart = 0;
-            int matchExtraEnd = extraParameterCount - 1;
-            int searchIndex;
-            int currentParameterIndex = 0;
-            ParamArrayAttribute paramsAttribute;
-            Type paramsElementType;
-            Type extraParamType;
-            foreach (ParameterInfo parameter in parameterInfos)
-            {
-                paramsAttribute = parameter.GetCustomAttribute<ParamArrayAttribute>();
-                if (paramsAttribute != null && parameter.ParameterType.IsArray)
-                {
-                    currentMatchResult = TryMatchParameterFromDictionary(parameter, valueMap, out currentMatchedValue);
-                    if (currentMatchResult == true)
-                    {
-                        matchedValues[currentParameterIndex] = currentMatchedValue;
-                        currentParameterIndex++;
-                        continue;
-                    }
-
-                    List<object> passedParameters = new List<object>();
-                    paramsElementType = parameter.ParameterType.GetElementType();
-                    for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                    {
-                        if (extraParameterUsed[searchIndex] == true)
-                            continue;
-
-                        if (paramsElementType.IsAssignableFrom(extraParameters[searchIndex].GetType()))
-                        {
-                            extraParameterUsed[searchIndex] = true;
-                            if (searchIndex == matchExtraStart)
-                                matchExtraStart++;
-                            if (searchIndex == matchExtraEnd)
-                                matchExtraEnd--;
-                            passedParameters.Add(extraParameters[searchIndex]);
-                        }
-                    }
-                    matchedValues[currentParameterIndex] = passedParameters.ToArray();
-                    currentParameterIndex++;
-                    continue;
-                }
-
-                currentMatchResult = false;
-                currentMatchedValue = null;
-
-                // invoke event
-                MatchingParameterEventArgs matchargs = new MatchingParameterEventArgs(parameter, null, extraParameters, valueMap);
-                ParameterMatching?.Invoke(null, matchargs);
-                currentMatchResult = matchargs.Handled;
-                if (currentMatchResult)
-                {
-                    currentMatchedValue = matchargs.Value;
-                    if (matchargs.Value != null)
-                    {
-                        for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                        {
-                            if (extraParameterUsed[searchIndex] == true)
-                                continue;
-
-                            if (ReferenceEquals(matchargs.Value, (extraParameters[searchIndex])))
-                            {
-                                extraParameterUsed[searchIndex] = true;
-                                if (searchIndex == matchExtraStart)
-                                    matchExtraStart++;
-                                if (searchIndex == matchExtraEnd)
-                                    matchExtraEnd--;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // match value maps
-                if (currentMatchResult == false)
-                    currentMatchResult = TryMatchParameterFromDictionary(parameter, valueMap, out currentMatchedValue);
-
-                // match extra parameters
-                if (currentMatchResult == false)
-                {
-                    for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                    {
-                        if (extraParameterUsed[searchIndex] == true)
-                            continue;
-                        extraParamType = extraParameters[searchIndex].GetType();
-                        if (parameter.ParameterType.IsAssignableFrom(extraParamType) == true)
-                        {
-                            currentMatchResult = true;
-                            currentMatchedValue = extraParameters[searchIndex];
-                            extraParameterUsed[searchIndex] = true;
-                            if (searchIndex == matchExtraStart)
-                                matchExtraStart++;
-                            if (searchIndex == matchExtraEnd)
-                                matchExtraEnd--;
-                            break;
-                        }
-                    }
-                }
-
-                // match default values
-                if (currentMatchResult == false)
-                {
-                    if (parameter.HasDefaultValue)
-                    {
-                        currentMatchResult = true;
-                        currentMatchedValue = parameter.DefaultValue;
-                    }
-                }
-
-                // match failed
-                if (currentMatchResult == false)
-                {
-                    parameterFullMatched = false;
-                    break;
-                }
-                matchedValues[currentParameterIndex] = currentMatchedValue;
-                currentParameterIndex++;
-            }
-
-            if (parameterFullMatched == true)
-            {
-                matchedParameters = matchedValues;
-                return true;
-            }
-            else
-            {
-                matchedParameters = null;
-                return false;
-            }
-        }
-        private static bool TryMatchMethodParameters(MethodBase method, IServiceProvider services, object[] extraParameters, out object[] matchedParameters)
-        {
+            if (namedParameters == null)
+                return InvokeMethod(instance, method, services, parameters);
             if (services == null)
-                return TryMatchMethodParameters(method, extraParameters, out matchedParameters);
+                return InvokeMethod(instance, method, namedParameters, parameters);
 
-            if (method == null)
+            ArgumentMatchedResult matchResult = null;
+            if (parameters.Length > 0)
+                matchResult = ArgumentMatchedResult.Match(method, services, namedParameters, parameters);
+            else
+                matchResult = ArgumentMatchedResult.Match(method, services, namedParameters);
+            InvokeMethodResult result = TryInvokeMethod(instance, matchResult);
+            if (result.IsExecuted == false)
+                throw new InvalidOperationException("cannot invoke method due to insufficient parameters");
+            if (result.IsExecutionSucceeded == false)
+                throw result.Exception;
+            if (result.HasReturnValueBySignature == false)
+                return null;
+            else
+                return result.ReturnValue;
+        }
+
+        public static T InvokeMethod<T>(object instance, MethodInfo method, params object[] parameters)
+        {
+            object result = InvokeMethod(instance, method, parameters);
+            if (result == null)
+                return default(T);
+            else
+                return (T)result;
+        }
+        public static T InvokeMethod<T>(object instance, MethodInfo method, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
+        {
+            object result = InvokeMethod(instance, method, namedParameters, parameters);
+            if (result == null)
+                return default(T);
+            else
+                return (T)result;
+        }
+        public static T InvokeMethod<T>(object instance, MethodInfo method, IServiceProvider services, params object[] parameters)
+        {
+            object result = InvokeMethod(instance, method, services, parameters);
+            if (result == null)
+                return default(T);
+            else
+                return (T)result;
+        }
+        public static T InvokeMethod<T>(object instance, MethodInfo method, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
+        {
+            object result = InvokeMethod(instance, method, services, namedParameters, parameters);
+            if (result == null)
+                return default(T);
+            else
+                return (T)result;
+        }
+
+        private static InvokeMethodResult TryInvokeMethod(object instance, ArgumentMatchedResult matchResult)
+        {
+            MethodInfo method = matchResult.Method as MethodInfo;
+            if (matchResult.IsPassed)
             {
-                matchedParameters = null;
-                return false;
-            }
-
-            ParameterInfo[] parameterInfos = method.GetParameters();
-            object[] matchedValues = new object[parameterInfos.Length];
-            int extraParameterCount = extraParameters.Length;
-            bool[] extraParameterUsed = new bool[extraParameterCount];
-            bool parameterFullMatched = true;
-            bool currentMatchResult;
-            object currentMatchedValue;
-            int matchExtraStart = 0;
-            int matchExtraEnd = extraParameterCount - 1;
-            int searchIndex;
-            int currentParameterIndex = 0;
-            ParamArrayAttribute paramsAttribute;
-            Type paramsElementType;
-            Type extraParamType;
-            foreach (ParameterInfo parameter in parameterInfos)
-            {
-                paramsAttribute = parameter.GetCustomAttribute<ParamArrayAttribute>();
-                if (paramsAttribute != null && parameter.ParameterType.IsArray)
+                try
                 {
-                    List<object> passedParameters = new List<object>();
-                    paramsElementType = parameter.ParameterType.GetElementType();
-                    for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                    {
-                        if (extraParameterUsed[searchIndex] == true)
-                            continue;
-
-                        if (paramsElementType.IsAssignableFrom(extraParameters[searchIndex].GetType()))
-                        {
-                            extraParameterUsed[searchIndex] = true;
-                            if (searchIndex == matchExtraStart)
-                                matchExtraStart++;
-                            if (searchIndex == matchExtraEnd)
-                                matchExtraEnd--;
-                            passedParameters.Add(extraParameters[searchIndex]);
-                        }
-                    }
-                    matchedValues[currentParameterIndex] = passedParameters.ToArray();
-                    currentParameterIndex++;
-                    continue;
+                    object returnValue = method.Invoke(instance, matchResult.Result);
+                    return new InvokeMethodResult(true, returnValue, method.ReturnType, null);
                 }
-
-                currentMatchResult = false;
-                currentMatchedValue = null;
-
-                // invoke event
-                MatchingParameterEventArgs matchargs = new MatchingParameterEventArgs(parameter, services, extraParameters, null);
-                ParameterMatching?.Invoke(null, matchargs);
-                currentMatchResult = matchargs.Handled;
-                if (currentMatchResult)
+                catch (TargetInvocationException ex)
                 {
-                    currentMatchedValue = matchargs.Value;
-                    if (matchargs.Value != null)
-                    {
-                        for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                        {
-                            if (extraParameterUsed[searchIndex] == true)
-                                continue;
-
-                            if (ReferenceEquals(matchargs.Value, (extraParameters[searchIndex])))
-                            {
-                                extraParameterUsed[searchIndex] = true;
-                                if (searchIndex == matchExtraStart)
-                                    matchExtraStart++;
-                                if (searchIndex == matchExtraEnd)
-                                    matchExtraEnd--;
-                                break;
-                            }
-                        }
-                    }
+                    return new InvokeMethodResult(true, null, method.ReturnType, ex.InnerException);
                 }
-
-                // match extra parameters
-                if (currentMatchResult == false && extraParameters != null)
+                catch
                 {
-                    for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                    {
-                        if (extraParameterUsed[searchIndex] == true)
-                            continue;
-                        extraParamType = extraParameters[searchIndex].GetType();
-                        if (parameter.ParameterType.IsAssignableFrom(extraParamType) == true)
-                        {
-                            currentMatchResult = true;
-                            currentMatchedValue = extraParameters[searchIndex];
-                            extraParameterUsed[searchIndex] = true;
-                            if (searchIndex == matchExtraStart)
-                                matchExtraStart++;
-                            if (searchIndex == matchExtraEnd)
-                                matchExtraEnd--;
-                            break;
-                        }
-                    }
+                    throw;
                 }
-
-                // match services
-                if (currentMatchResult == false)
-                    currentMatchResult = services.TryGetService(parameter.ParameterType, out currentMatchedValue);
-
-                // match default values
-                if (currentMatchResult == false)
-                {
-                    if (parameter.HasDefaultValue)
-                    {
-                        currentMatchResult = true;
-                        currentMatchedValue = parameter.DefaultValue;
-                    }
-                }
-
-                // match failed
-                if (currentMatchResult == false)
-                {
-                    parameterFullMatched = false;
-                    break;
-                }
-                matchedValues[currentParameterIndex] = currentMatchedValue;
-                currentParameterIndex++;
-            }
-            if (parameterFullMatched == true)
-            {
-                matchedParameters = matchedValues;
-                return true;
             }
             else
             {
-                matchedParameters = null;
-                return false;
+                return new InvokeMethodResult(false, null, method.ReturnType, null);
             }
         }
-        private static bool TryMatchMethodParameters(MethodBase method, IServiceProvider services, IReadOnlyDictionary<string, object> valueMap, object[] extraParameters, out object[] matchedParameters)
+        private static ArgumentMatchedResult FindBestMatch(IEnumerable<ArgumentMatchedResult> results)
         {
-            if (services == null)
-                return TryMatchMethodParameters(method, valueMap, extraParameters, out matchedParameters);
-
-            if (valueMap == null)
-                return TryMatchMethodParameters(method, services, extraParameters, out matchedParameters);
-
-            if (method == null)
+            double maxScore = 0;
+            ArgumentMatchedResult matchResult = null;
+            foreach (ArgumentMatchedResult m in results)
             {
-                matchedParameters = null;
-                return false;
-            }
-
-            ParameterInfo[] parameterInfos = method.GetParameters();
-            object[] matchedValues = new object[parameterInfos.Length];
-            int extraParameterCount = extraParameters.Length;
-            bool[] extraParameterUsed = new bool[extraParameterCount];
-            bool parameterFullMatched = true;
-            bool currentMatchResult;
-            object currentMatchedValue;
-            int matchExtraStart = 0;
-            int matchExtraEnd = extraParameterCount - 1;
-            int searchIndex;
-            int currentParameterIndex = 0;
-            ParamArrayAttribute paramsAttribute;
-            Type paramsElementType;
-            Type extraParamType;
-            foreach (ParameterInfo parameter in parameterInfos)
-            {
-                paramsAttribute = parameter.GetCustomAttribute<ParamArrayAttribute>();
-                if (paramsAttribute != null && parameter.ParameterType.IsArray)
-                {
-                    currentMatchResult = TryMatchParameterFromDictionary(parameter, valueMap, out currentMatchedValue);
-                    if (currentMatchResult == true)
-                    {
-                        matchedValues[currentParameterIndex] = currentMatchedValue;
-                        currentParameterIndex++;
-                        continue;
-                    }
-
-                    List<object> passedParameters = new List<object>();
-                    paramsElementType = parameter.ParameterType.GetElementType();
-                    for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                    {
-                        if (extraParameterUsed[searchIndex] == true)
-                            continue;
-
-                        if (paramsElementType.IsAssignableFrom(extraParameters[searchIndex].GetType()))
-                        {
-                            extraParameterUsed[searchIndex] = true;
-                            if (searchIndex == matchExtraStart)
-                                matchExtraStart++;
-                            if (searchIndex == matchExtraEnd)
-                                matchExtraEnd--;
-                            passedParameters.Add(extraParameters[searchIndex]);
-                        }
-                    }
-                    matchedValues[currentParameterIndex] = passedParameters.ToArray();
-                    currentParameterIndex++;
+                if (!m.IsPassed)
                     continue;
-                }
-
-                currentMatchResult = false;
-                currentMatchedValue = null;
-
-                // invoke event
-                MatchingParameterEventArgs matchargs = new MatchingParameterEventArgs(parameter, services, extraParameters, valueMap);
-                ParameterMatching?.Invoke(null, matchargs);
-                currentMatchResult = matchargs.Handled;
-                if (currentMatchResult)
+                if (m.Score > maxScore)
                 {
-                    currentMatchedValue = matchargs.Value;
-                    if (matchargs.Value != null)
-                    {
-                        for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                        {
-                            if (extraParameterUsed[searchIndex] == true)
-                                continue;
-
-                            if (ReferenceEquals(matchargs.Value, (extraParameters[searchIndex])))
-                            {
-                                extraParameterUsed[searchIndex] = true;
-                                if (searchIndex == matchExtraStart)
-                                    matchExtraStart++;
-                                if (searchIndex == matchExtraEnd)
-                                    matchExtraEnd--;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // match value maps
-                if (currentMatchResult == false)
-                    currentMatchResult = TryMatchParameterFromDictionary(parameter, valueMap, out currentMatchedValue);
-
-                // match extra parameters
-                if (currentMatchResult == false)
-                {
-                    for (searchIndex = matchExtraStart; searchIndex <= matchExtraEnd; searchIndex++)
-                    {
-                        if (extraParameterUsed[searchIndex] == true)
-                            continue;
-                        extraParamType = extraParameters[searchIndex].GetType();
-                        if (parameter.ParameterType.IsAssignableFrom(extraParamType) == true)
-                        {
-                            currentMatchResult = true;
-                            currentMatchedValue = extraParameters[searchIndex];
-                            extraParameterUsed[searchIndex] = true;
-                            if (searchIndex == matchExtraStart)
-                                matchExtraStart++;
-                            if (searchIndex == matchExtraEnd)
-                                matchExtraEnd--;
-                            break;
-                        }
-                    }
-                }
-
-                // match services
-                if (currentMatchResult == false)
-                    currentMatchResult = services.TryGetService(parameter.ParameterType, out currentMatchedValue);
-
-                // match default values
-                if (currentMatchResult == false)
-                {
-                    if (parameter.HasDefaultValue)
-                    {
-                        currentMatchResult = true;
-                        currentMatchedValue = parameter.DefaultValue;
-                    }
-                }
-
-                // match failed
-                if (currentMatchResult == false)
-                {
-                    parameterFullMatched = false;
-                    break;
-                }
-                matchedValues[currentParameterIndex] = currentMatchedValue;
-                currentParameterIndex++;
-            }
-
-            if (parameterFullMatched == true)
-            {
-                matchedParameters = matchedValues;
-                return true;
-            }
-            else
-            {
-                matchedParameters = null;
-                return false;
-            }
-        }
-
-        private static bool TryMatchParameterFromDictionary(ParameterInfo parameterInfo, IReadOnlyDictionary<string, object> valueMap, out object matchedValue)
-        {
-            string paramName = parameterInfo.Name.ToLower();
-            object mapedParam;
-            if (valueMap.TryGetValue(paramName, out mapedParam) == true)
-            {
-                if (parameterInfo.ParameterType.IsAssignableFrom(mapedParam.GetType()) == true)
-                {
-                    matchedValue = mapedParam;
-                    return true;
-                }
-                else
-                {
-                    try
-                    {
-                        matchedValue = Convert.ChangeType(mapedParam, parameterInfo.ParameterType);
-                        return true;
-                    }
-                    catch (Exception ex)
-                    {
-                        // TODO: remove this line
-                        throw ex;
-                    }
+                    matchResult = m;
+                    maxScore = m.Score;
                 }
             }
-            matchedValue = null;
-            return false;
+            return matchResult;
+
         }
     }
 }

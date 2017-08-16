@@ -130,7 +130,7 @@ namespace Test
                 DelegateTest delegateobj = services.CreateInstance<DelegateTest>();
                 Assert.Fail();
             }
-            catch (InvalidOperationException)
+            catch (Exception)
             {
             }
 
