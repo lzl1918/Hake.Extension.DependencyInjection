@@ -19,6 +19,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         private const double TYPE_DEFAULT_RATIO = 0.5;
         private const double NOT_TYPE_DEFAULT_RATIO = 0.25;
 
+
         public double Score { get; }
         public bool IsPassed { get; }
 
@@ -34,7 +35,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             Result = result;
         }
 
-        private static object GetTypedList(List<object> values, Type elementType)
+        private static object GetTypedArray(List<object> values, Type elementType)
         {
             int count = values.Count;
             Type arrayType = elementType.MakeArrayType();
@@ -49,6 +50,21 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             }
             return array;
         }
+        private static object GetTypedList(List<object> values, Type elementType)
+        {
+            int count = values.Count;
+            object list = Internal.TypeExtensions.CreateList(elementType);
+            Type listType = list.GetType();
+            MethodInfo method = listType.GetMethod("Add", BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            object[] param = new object[1];
+            for (int i = 0; i < count; i++)
+            {
+                param[0] = values[i];
+                method.Invoke(list, param);
+            }
+            return list;
+        }
+
         private static bool TryMatchParameterType(TypeInfo assignLeft, TypeInfo assignRight, object input, out object value)
         {
             if (assignLeft.IsAssignableFrom(assignRight))
@@ -56,7 +72,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 value = input;
                 return true;
             }
-            else if (assignLeft.GetInterface("IConvertible") != null && assignRight.GetInterface("IConvertible") != null)
+            else if (assignLeft.GetInterface("System.IConvertible") != null && assignRight.GetInterface("System.IConvertible") != null)
             {
                 try
                 {
@@ -72,14 +88,111 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             value = null;
             return false;
         }
+        private static bool TryMatchParameterType(TypeInfo assignLeft, TypeInfo assignRight)
+        {
+            if (assignLeft.IsAssignableFrom(assignRight))
+                return true;
+            else if (assignLeft.GetInterface("System.IConvertible") != null && assignRight.GetInterface("System.IConvertible") != null)
+                return true;
+            return false;
+        }
         private static bool TryFindParameterFromDictionary(string paramName, TypeInfo paramTypeInfo, IReadOnlyDictionary<string, object> namedParameters, out object matchedValue)
         {
             object mappedParam;
             object value;
-            if (namedParameters.TryGetValue(paramName, out mappedParam) && TryMatchParameterType(paramTypeInfo, mappedParam.GetType().GetTypeInfo(), mappedParam, out value))
+            if (namedParameters.TryGetValue(paramName, out mappedParam) && mappedParam != null)
             {
-                matchedValue = value;
-                return true;
+                Type enumType;
+                Type elementType;
+                TypeInfo elementTypeInfo;
+                Type valueType = mappedParam.GetType();
+                TypeInfo valueTypeInfo = valueType.GetTypeInfo();
+                MethodInfo getEnumeratorMethod;
+                Type enumeratorType;
+                MethodInfo currentMethod;
+                MethodInfo moveNextMethod;
+                object enumerator;
+                bool next;
+                object current;
+                List<object> values;
+                if (TryMatchParameterType(paramTypeInfo, valueTypeInfo, mappedParam, out value))
+                {
+                    matchedValue = value;
+                    return true;
+                }
+                else
+                {
+                    enumType = valueTypeInfo.GetIEnumerableInfo();
+                    // values -> array
+                    if (paramTypeInfo.IsArray)
+                    {
+                        elementType = paramTypeInfo.GetElementType();
+                        elementTypeInfo = elementType.GetTypeInfo();
+                        values = new List<object>();
+                        if (enumType == null)
+                        {
+                            if (TryMatchParameterType(elementTypeInfo, valueTypeInfo, mappedParam, out value))
+                                values.Add(value);
+                        }
+                        else
+                        {
+                            getEnumeratorMethod = enumType.GetMethod("GetEnumerator");
+                            enumerator = getEnumeratorMethod.Invoke(mappedParam, null);
+                            enumeratorType = enumerator.GetType();
+                            currentMethod = enumeratorType.GetProperty("Current").GetMethod;
+                            moveNextMethod = enumeratorType.GetMethod("MoveNext");
+                            while (true)
+                            {
+                                next = (bool)moveNextMethod.Invoke(enumerator, null);
+                                if (!next)
+                                    break;
+                                current = currentMethod.Invoke(enumerator, null);
+                                if (current == null)
+                                    continue;
+                                if (TryMatchParameterType(elementTypeInfo, current.GetType().GetTypeInfo(), current, out value))
+                                    values.Add(value);
+                            }
+                        }
+                        matchedValue = GetTypedArray(values, elementType);
+                        return true;
+                    }
+
+                    // values -> list
+                    if (paramTypeInfo.IsAssignableFromList(out elementType))
+                    {
+                        elementTypeInfo = elementType.GetTypeInfo();
+                        values = new List<object>();
+                        if (enumType == null)
+                        {
+                            if (TryMatchParameterType(elementTypeInfo, valueTypeInfo, mappedParam, out value))
+                                values.Add(value);
+                        }
+                        else
+                        {
+                            getEnumeratorMethod = enumType.GetMethod("GetEnumerator");
+                            enumerator = getEnumeratorMethod.Invoke(mappedParam, null);
+                            enumeratorType = enumerator.GetType();
+                            currentMethod = enumeratorType.GetProperty("Current").GetMethod;
+                            moveNextMethod = enumeratorType.GetMethod("MoveNext");
+                            while (true)
+                            {
+                                next = (bool)moveNextMethod.Invoke(enumerator, null);
+                                if (!next)
+                                    break;
+                                current = currentMethod.Invoke(enumerator, null);
+                                if (current == null)
+                                    continue;
+                                if (TryMatchParameterType(elementTypeInfo, current.GetType().GetTypeInfo(), current, out value))
+                                    values.Add(value);
+                            }
+                        }
+                        matchedValue = GetTypedList(values, elementType);
+                        return true;
+                    }
+
+                    matchedValue = null;
+                    return false;
+                }
             }
             else
             {
@@ -231,7 +344,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                                 extraParamsEnd--;
                         }
                     }
-                    result[paramIndex] = GetTypedList(extras, elementType);
+                    result[paramIndex] = GetTypedArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }
@@ -359,7 +472,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                         if (TryMatchParameterType(elementTypeInfo, pair.Value.GetType().GetTypeInfo(), pair.Value, out value))
                             extras.Add(value);
                     }
-                    result[paramIndex] = GetTypedList(extras, elementType);
+                    result[paramIndex] = GetTypedArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }
@@ -483,7 +596,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                                 extraParamsEnd--;
                         }
                     }
-                    result[paramIndex] = GetTypedList(extras, elementType);
+                    result[paramIndex] = GetTypedArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }
@@ -721,7 +834,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                                 extraParamsEnd--;
                         }
                     }
-                    result[paramIndex] = GetTypedList(extras, elementType);
+                    result[paramIndex] = GetTypedArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }
@@ -857,7 +970,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                         if (TryMatchParameterType(elementTypeInfo, pair.Value.GetType().GetTypeInfo(), pair.Value, out value))
                             extras.Add(value);
                     }
-                    result[paramIndex] = GetTypedList(extras, elementType);
+                    result[paramIndex] = GetTypedArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }
@@ -989,7 +1102,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                                 extraParamsEnd--;
                         }
                     }
-                    result[paramIndex] = GetTypedList(extras, elementType);
+                    result[paramIndex] = GetTypedArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }

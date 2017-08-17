@@ -177,5 +177,83 @@ namespace Test
             ret = ObjectFactory.InvokeMethod(val, nameof(val.OptionalParameters), "str", 1, 2, 3, 4);
             Assert.AreEqual("objects: 5", ret);
         }
+
+        [TestMethod]
+        public void ValueOfArrayParameterTest()
+        {
+            MethodTests obj = new MethodTests();
+            object ret;
+
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ArraySize));
+            Assert.AreEqual(0, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ArraySum));
+            Assert.AreEqual(0, ret);
+
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ArraySize), new int[] { 1, 2, 3 });
+            Assert.AreEqual(3, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ArraySum), new int[] { 1, 2, 3 });
+            Assert.AreEqual(6, ret);
+
+            Dictionary<string, object> param = new Dictionary<string, object>()
+            {
+                ["array"] = new int[] { 1, 2, 3 }
+            };
+
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ArraySize), param);
+            Assert.AreEqual(3, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ArraySum), param);
+            Assert.AreEqual(6, ret);
+
+            param["array"] = 10;
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ArraySize), param);
+            Assert.AreEqual(1, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ArraySum), param);
+            Assert.AreEqual(10, ret);
+        }
+        [TestMethod]
+        public void ValueOfListParameterTest()
+        {
+            MethodTests obj = new MethodTests();
+            object ret;
+
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSize));
+            Assert.AreEqual(0, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSum));
+            Assert.AreEqual(0, ret);
+
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSize), new int[] { 1, 2, 3 });
+            Assert.AreEqual(3, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSum), new int[] { 1, 2, 3 });
+            Assert.AreEqual(6, ret);
+
+            List<int> lst = new List<int>() { 1, 2, 3 };
+            Dictionary<string, object> param = new Dictionary<string, object>()
+            {
+                ["list"] = lst,
+                ["array"] = lst,
+            };
+
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSize), param);
+            Assert.AreEqual(3, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSum), param);
+            Assert.AreEqual(6, ret);
+
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ArraySize), param);
+            Assert.AreEqual(3, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ArraySum), param);
+            Assert.AreEqual(6, ret);
+
+            param["list"] = 10;
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSize), param);
+            Assert.AreEqual(1, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSum), param);
+            Assert.AreEqual(10, ret);
+
+            param["list"] = new string[] { "1", "2", "3", "a" };
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSize), param);
+            Assert.AreEqual(3, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSum), param);
+            Assert.AreEqual(6, ret);
+        }
     }
 }

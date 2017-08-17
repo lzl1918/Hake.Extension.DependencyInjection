@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace Test
@@ -37,6 +38,26 @@ namespace Test
     public class FakeB : IFake
     {
         public int Value { get { return 2; } }
+    }
+
+    public class MethodTests
+    {
+        public int ArraySize(int[] array)
+        {
+            return array.Length;
+        }
+        public int ListSize(IList<int> list)
+        {
+            return list.Count;
+        }
+        public int ArraySum(int[] array)
+        {
+            return array.Sum();
+        }
+        public int ListSum(IEnumerable<int> list)
+        {
+            return list.Sum();
+        }
     }
 
     public class TakeArguments
@@ -94,5 +115,4 @@ namespace Test
         A, B, C
     }
     public delegate void DelegateTest();
-
 }
