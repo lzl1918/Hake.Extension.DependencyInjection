@@ -14,8 +14,8 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         public object[] Parameters { get; }
         public IReadOnlyDictionary<string, object> NamedParameters { get; }
 
-        public bool Handled { get; private set; }
-        public object Value { get; private set; }
+        internal bool Handled { get; private set; }
+        internal object Value { get; private set; }
 
         internal ParameterMatchingEventArgs(ParameterInfo parameterInfo, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, object[] parameters)
         {

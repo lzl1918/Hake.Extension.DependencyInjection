@@ -118,6 +118,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             Type paramType;
             TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
+            ParameterMatchingEventArgs matchingEventArgs;
             foreach (ParameterInfo parameter in methodParameters)
             {
                 paramType = parameter.ParameterType;
@@ -140,6 +141,14 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 }
 
                 // no need of checking 'ref'
+
+                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, null, null, null);
+                if (matchingEventArgs != null && matchingEventArgs.Handled)
+                {
+                    result[paramIndex] = matchingEventArgs.Value;
+                    matchedCount++;
+                    continue;
+                }
 
                 if (parameter.HasDefaultValue)
                 {
@@ -189,6 +198,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             Type paramType;
             TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
+            ParameterMatchingEventArgs matchingEventArgs;
             object value;
             bool isValueFound;
             foreach (ParameterInfo parameter in methodParameters)
@@ -262,6 +272,31 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
+                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, null, null, parameters);
+                if (matchingEventArgs != null && matchingEventArgs.Handled)
+                {
+                    value = matchingEventArgs.Value;
+                    if (value != null)
+                        for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                            if (ReferenceEquals(value, parameters[searchIndex]))
+                            {
+                                extraParamsUsage[searchIndex] = true;
+                                if (searchIndex == extraParamsStart)
+                                    extraParamsStart++;
+                                while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
+                                    extraParamsStart++;
+                                if (searchIndex == extraParamsEnd)
+                                    extraParamsEnd--;
+                                while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
+                                    extraParamsEnd--;
+                                break;
+                            }
+
+                    result[paramIndex] = value;
+                    matchedCount++;
+                    continue;
+                }
+
                 if (parameter.HasDefaultValue)
                 {
                     result[paramIndex] = parameter.DefaultValue;
@@ -302,6 +337,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             Type paramType;
             TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
+            ParameterMatchingEventArgs matchingEventArgs;
             object value;
             string paramName;
             foreach (ParameterInfo parameter in methodParameters)
@@ -342,6 +378,14 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 {
                     usedKeys.Add(paramName);
                     result[paramIndex] = value;
+                    matchedCount++;
+                    continue;
+                }
+
+                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, null, namedParameters, null);
+                if (matchingEventArgs != null && matchingEventArgs.Handled)
+                {
+                    result[paramIndex] = matchingEventArgs.Value;
                     matchedCount++;
                     continue;
                 }
@@ -398,6 +442,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             Type paramType;
             TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
+            ParameterMatchingEventArgs matchingEventArgs;
             object value;
             bool isValueFound;
             string paramName;
@@ -489,6 +534,31 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
+                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, null, namedParameters, parameters);
+                if (matchingEventArgs != null && matchingEventArgs.Handled)
+                {
+                    value = matchingEventArgs.Value;
+                    if (value != null)
+                        for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                            if (ReferenceEquals(value, parameters[searchIndex]))
+                            {
+                                extraParamsUsage[searchIndex] = true;
+                                if (searchIndex == extraParamsStart)
+                                    extraParamsStart++;
+                                while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
+                                    extraParamsStart++;
+                                if (searchIndex == extraParamsEnd)
+                                    extraParamsEnd--;
+                                while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
+                                    extraParamsEnd--;
+                                break;
+                            }
+
+                    result[paramIndex] = value;
+                    matchedCount++;
+                    continue;
+                }
+
                 if (parameter.HasDefaultValue)
                 {
                     result[paramIndex] = parameter.DefaultValue;
@@ -529,6 +599,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             Type paramType;
             TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
+            ParameterMatchingEventArgs matchingEventArgs;
             object value;
             foreach (ParameterInfo parameter in methodParameters)
             {
@@ -556,6 +627,14 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 if (services.TryGetService(paramType, out value))
                 {
                     result[paramIndex] = value;
+                    matchedCount++;
+                    continue;
+                }
+
+                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, services, null, null);
+                if (matchingEventArgs != null && matchingEventArgs.Handled)
+                {
+                    result[paramIndex] = matchingEventArgs.Value;
                     matchedCount++;
                     continue;
                 }
@@ -609,6 +688,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             Type paramType;
             TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
+            ParameterMatchingEventArgs matchingEventArgs;
             object value;
             bool isValueFound;
             foreach (ParameterInfo parameter in methodParameters)
@@ -689,6 +769,31 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
+                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, services, null, parameters);
+                if (matchingEventArgs != null && matchingEventArgs.Handled)
+                {
+                    value = matchingEventArgs.Value;
+                    if (value != null)
+                        for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                            if (ReferenceEquals(value, parameters[searchIndex]))
+                            {
+                                extraParamsUsage[searchIndex] = true;
+                                if (searchIndex == extraParamsStart)
+                                    extraParamsStart++;
+                                while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
+                                    extraParamsStart++;
+                                if (searchIndex == extraParamsEnd)
+                                    extraParamsEnd--;
+                                while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
+                                    extraParamsEnd--;
+                                break;
+                            }
+
+                    result[paramIndex] = value;
+                    matchedCount++;
+                    continue;
+                }
+
                 if (parameter.HasDefaultValue)
                 {
                     result[paramIndex] = parameter.DefaultValue;
@@ -730,6 +835,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             Type paramType;
             TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
+            ParameterMatchingEventArgs matchingEventArgs;
             object value;
             string paramName;
             foreach (ParameterInfo parameter in methodParameters)
@@ -777,6 +883,14 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 if (services.TryGetService(paramType, out value))
                 {
                     result[paramIndex] = value;
+                    matchedCount++;
+                    continue;
+                }
+
+                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, services, namedParameters, null);
+                if (matchingEventArgs != null && matchingEventArgs.Handled)
+                {
+                    result[paramIndex] = matchingEventArgs.Value;
                     matchedCount++;
                     continue;
                 }
@@ -834,6 +948,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             Type paramType;
             TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
+            ParameterMatchingEventArgs matchingEventArgs;
             object value;
             bool isValueFound;
             string paramName;
@@ -927,6 +1042,31 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 if (services.TryGetService(paramType, out value))
                 {
+                    result[paramIndex] = value;
+                    matchedCount++;
+                    continue;
+                }
+
+                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, services, namedParameters, parameters);
+                if (matchingEventArgs != null && matchingEventArgs.Handled)
+                {
+                    value = matchingEventArgs.Value;
+                    if (value != null)
+                        for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                            if (ReferenceEquals(value, parameters[searchIndex]))
+                            {
+                                extraParamsUsage[searchIndex] = true;
+                                if (searchIndex == extraParamsStart)
+                                    extraParamsStart++;
+                                while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
+                                    extraParamsStart++;
+                                if (searchIndex == extraParamsEnd)
+                                    extraParamsEnd--;
+                                while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
+                                    extraParamsEnd--;
+                                break;
+                            }
+
                     result[paramIndex] = value;
                     matchedCount++;
                     continue;

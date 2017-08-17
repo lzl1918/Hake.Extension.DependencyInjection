@@ -9,10 +9,8 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 {
     public static class ObjectFactory
     {
-        [Obsolete("not implemented event", true)]
         public static event EventHandler<ParameterMatchingEventArgs> ParameterMatching;
 
-        [Obsolete("not implemented method", true)]
         internal static ParameterMatchingEventArgs RaiseEvent(ParameterInfo parameter, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, object[] parameters)
         {
             if (ParameterMatching == null)
