@@ -630,6 +630,75 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 return (T)result;
         }
 
+        public static MethodInvokeContext CreateInvokeContext(MethodInfo method, params object[] parameters)
+        {
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+
+            ArgumentMatchedResult matchResult = null;
+            if (parameters.Length > 0)
+                matchResult = ArgumentMatchedResult.Match(method, parameters);
+            else
+                matchResult = ArgumentMatchedResult.Match(method);
+
+            if (!matchResult.IsPassed)
+                return null;
+            return new MethodInvokeContext(matchResult.Score, matchResult.Result, method);
+        }
+        public static MethodInvokeContext CreateInvokeContext(MethodInfo method, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
+        {
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            if (namedParameters == null)
+                return CreateInvokeContext(method, parameters);
+
+            ArgumentMatchedResult matchResult = null;
+            if (parameters.Length > 0)
+                matchResult = ArgumentMatchedResult.Match(method, namedParameters, parameters);
+            else
+                matchResult = ArgumentMatchedResult.Match(method, namedParameters);
+
+            if (!matchResult.IsPassed)
+                return null;
+            return new MethodInvokeContext(matchResult.Score, matchResult.Result, method);
+        }
+        public static MethodInvokeContext CreateInvokeContext(MethodInfo method, IServiceProvider services, params object[] parameters)
+        {
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            if (services == null)
+                return CreateInvokeContext(method, parameters);
+
+            ArgumentMatchedResult matchResult = null;
+            if (parameters.Length > 0)
+                matchResult = ArgumentMatchedResult.Match(method, services, parameters);
+            else
+                matchResult = ArgumentMatchedResult.Match(method, services);
+
+            if (!matchResult.IsPassed)
+                return null;
+            return new MethodInvokeContext(matchResult.Score, matchResult.Result, method);
+        }
+        public static MethodInvokeContext CreateInvokeContext(MethodInfo method, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, params object[] parameters)
+        {
+            if (method == null)
+                throw new ArgumentNullException(nameof(method));
+            if (namedParameters == null)
+                return CreateInvokeContext(method, services, parameters);
+            if (services == null)
+                return CreateInvokeContext(method, namedParameters, parameters);
+
+            ArgumentMatchedResult matchResult = null;
+            if (parameters.Length > 0)
+                matchResult = ArgumentMatchedResult.Match(method, services, namedParameters, parameters);
+            else
+                matchResult = ArgumentMatchedResult.Match(method, services, namedParameters);
+
+            if (!matchResult.IsPassed)
+                return null;
+            return new MethodInvokeContext(matchResult.Score, matchResult.Result, method);
+        }
+
         private static InvokeMethodResult TryInvokeMethod(object instance, ArgumentMatchedResult matchResult)
         {
             MethodInfo method = matchResult.Method as MethodInfo;

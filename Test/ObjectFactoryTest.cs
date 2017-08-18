@@ -3,6 +3,7 @@ using Hake.Extension.DependencyInjection.Implementations;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
 
 namespace Test
@@ -220,10 +221,9 @@ namespace Test
             Assert.AreEqual(0, ret);
             ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSum));
             Assert.AreEqual(0, ret);
-
-            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSize), new int[] { 1, 2, 3 });
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSize), new double[] { 1, 2, 3 });
             Assert.AreEqual(3, ret);
-            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSum), new int[] { 1, 2, 3 });
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSum), new double[] { 1, 2, 3 });
             Assert.AreEqual(6, ret);
 
             List<int> lst = new List<int>() { 1, 2, 3 };
@@ -254,6 +254,32 @@ namespace Test
             Assert.AreEqual(3, ret);
             ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSum), param);
             Assert.AreEqual(6, ret);
+
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSize), param["list"]);
+            Assert.AreEqual(3, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSum), param["list"]);
+            Assert.AreEqual(6, ret);
+
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSize), "1");
+            Assert.AreEqual(1, ret);
+            ret = ObjectFactory.InvokeMethod(obj, nameof(obj.ListSum), "5");
+            Assert.AreEqual(5, ret);
+        }
+
+        [TestMethod]
+        public void ChangeParameterTest()
+        {
+            MethodTests obj = new MethodTests();
+            Type methodType = typeof(MethodTests);
+            MethodInfo method = methodType.GetMethod(nameof(MethodTests.ArraySize));
+            object ret;
+            MethodInvokeContext context = ObjectFactory.CreateInvokeContext(method);
+            ret = context.Invoke(obj);
+            Assert.AreEqual(0, ret);
+
+            context.Arguments[0] = new int[] { 1, 2, 3, 4 };
+            ret = context.Invoke(obj);
+            Assert.AreEqual(4, ret);
         }
     }
 }

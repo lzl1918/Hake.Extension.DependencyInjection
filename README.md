@@ -39,5 +39,15 @@ We build a service pool to hold configured services. Before calling to any metho
 
 `IServiceProvider` service pool is used to find corresponding services to match parameters by declared type in `ServiceDescriptor`.
 
+**Matching sequence:**
+1. from dictionary
+2. match value(s) to list/array from dictionary if possible
+3. from array
+4. from services
+5. raise event and try get value
+6. use parameter default value
+7. match value(s) to list/array from array if possible
+8. use default value of parameter type
+
 ## Code
 By referring to test codes, you can see how the dependency injection calls methods and creates objects.

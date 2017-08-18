@@ -22,9 +22,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
         public double Score { get; }
         public bool IsPassed { get; }
-
         public MethodBase Method { get; }
-
         public object[] Result { get; }
 
         private ArgumentMatchedResult(MethodBase method, object[] result, double score, bool isPassed)
@@ -88,117 +86,100 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             value = null;
             return false;
         }
-        private static bool TryMatchParameterType(TypeInfo assignLeft, TypeInfo assignRight)
-        {
-            if (assignLeft.IsAssignableFrom(assignRight))
-                return true;
-            else if (assignLeft.GetInterface("System.IConvertible") != null && assignRight.GetInterface("System.IConvertible") != null)
-                return true;
-            return false;
-        }
         private static bool TryFindParameterFromDictionary(string paramName, TypeInfo paramTypeInfo, IReadOnlyDictionary<string, object> namedParameters, out object matchedValue)
         {
             object mappedParam;
             object value;
             if (namedParameters.TryGetValue(paramName, out mappedParam) && mappedParam != null)
             {
-                Type enumType;
-                Type elementType;
-                TypeInfo elementTypeInfo;
                 Type valueType = mappedParam.GetType();
                 TypeInfo valueTypeInfo = valueType.GetTypeInfo();
-                MethodInfo getEnumeratorMethod;
-                Type enumeratorType;
-                MethodInfo currentMethod;
-                MethodInfo moveNextMethod;
-                object enumerator;
-                bool next;
-                object current;
-                List<object> values;
                 if (TryMatchParameterType(paramTypeInfo, valueTypeInfo, mappedParam, out value))
                 {
                     matchedValue = value;
                     return true;
                 }
                 else
-                {
-                    enumType = valueTypeInfo.GetIEnumerableInfo();
-                    // values -> array
-                    if (paramTypeInfo.IsArray)
-                    {
-                        elementType = paramTypeInfo.GetElementType();
-                        elementTypeInfo = elementType.GetTypeInfo();
-                        values = new List<object>();
-                        if (enumType == null)
-                        {
-                            if (TryMatchParameterType(elementTypeInfo, valueTypeInfo, mappedParam, out value))
-                                values.Add(value);
-                        }
-                        else
-                        {
-                            getEnumeratorMethod = enumType.GetMethod("GetEnumerator");
-                            enumerator = getEnumeratorMethod.Invoke(mappedParam, null);
-                            enumeratorType = enumerator.GetType();
-                            currentMethod = enumeratorType.GetProperty("Current").GetMethod;
-                            moveNextMethod = enumeratorType.GetMethod("MoveNext");
-                            while (true)
-                            {
-                                next = (bool)moveNextMethod.Invoke(enumerator, null);
-                                if (!next)
-                                    break;
-                                current = currentMethod.Invoke(enumerator, null);
-                                if (current == null)
-                                    continue;
-                                if (TryMatchParameterType(elementTypeInfo, current.GetType().GetTypeInfo(), current, out value))
-                                    values.Add(value);
-                            }
-                        }
-                        matchedValue = GetTypedArray(values, elementType);
-                        return true;
-                    }
-
-                    // values -> list
-                    if (paramTypeInfo.IsAssignableFromList(out elementType))
-                    {
-                        elementTypeInfo = elementType.GetTypeInfo();
-                        values = new List<object>();
-                        if (enumType == null)
-                        {
-                            if (TryMatchParameterType(elementTypeInfo, valueTypeInfo, mappedParam, out value))
-                                values.Add(value);
-                        }
-                        else
-                        {
-                            getEnumeratorMethod = enumType.GetMethod("GetEnumerator");
-                            enumerator = getEnumeratorMethod.Invoke(mappedParam, null);
-                            enumeratorType = enumerator.GetType();
-                            currentMethod = enumeratorType.GetProperty("Current").GetMethod;
-                            moveNextMethod = enumeratorType.GetMethod("MoveNext");
-                            while (true)
-                            {
-                                next = (bool)moveNextMethod.Invoke(enumerator, null);
-                                if (!next)
-                                    break;
-                                current = currentMethod.Invoke(enumerator, null);
-                                if (current == null)
-                                    continue;
-                                if (TryMatchParameterType(elementTypeInfo, current.GetType().GetTypeInfo(), current, out value))
-                                    values.Add(value);
-                            }
-                        }
-                        matchedValue = GetTypedList(values, elementType);
-                        return true;
-                    }
-
-                    matchedValue = null;
-                    return false;
-                }
+                    return TryMatchValueToList(mappedParam, paramTypeInfo, true, out matchedValue);
             }
             else
             {
                 matchedValue = null;
                 return false;
             }
+        }
+        private static List<object> TryMatchParameterList(object input, TypeInfo elementTypeInfo)
+        {
+            TypeInfo inputTypeInfo = input.GetType().GetTypeInfo();
+            Type enumType = inputTypeInfo.GetIEnumerableInfo();
+            List<object> result = new List<object>();
+            object value;
+            if (TryMatchParameterType(elementTypeInfo, inputTypeInfo, input, out value))
+                result.Add(value);
+            else if (enumType != null)
+            {
+                MethodInfo getEnumeratorMethod = getEnumeratorMethod = enumType.GetMethod("GetEnumerator");
+                object enumerator = getEnumeratorMethod.Invoke(input, null);
+                Type enumeratorType = enumerator.GetType();
+                MethodInfo currentMethod = enumeratorType.GetProperty("Current").GetMethod;
+                MethodInfo moveNextMethod = enumeratorType.GetMethod("MoveNext");
+                bool next;
+                object current;
+                while (true)
+                {
+                    next = (bool)moveNextMethod.Invoke(enumerator, null);
+                    if (!next)
+                        break;
+                    current = currentMethod.Invoke(enumerator, null);
+                    if (current == null)
+                        continue;
+                    if (TryMatchParameterType(elementTypeInfo, current.GetType().GetTypeInfo(), current, out value))
+                        result.Add(value);
+                }
+            }
+            return result;
+        }
+        private static bool TryMatchValueToList(object input, TypeInfo parameterType, bool allowEmpty, out object value)
+        {
+            Type elementType;
+            TypeInfo elementTypeInfo;
+            List<object> values;
+            if (parameterType.IsArray)
+            {
+                elementType = parameterType.GetElementType();
+                elementTypeInfo = elementType.GetTypeInfo();
+                values = TryMatchParameterList(input, elementTypeInfo);
+                if (allowEmpty || values.Count > 0)
+                {
+                    value = GetTypedArray(values, elementType);
+                    return true;
+                }
+                else
+                {
+                    value = null;
+                    return false;
+                }
+            }
+
+            // values -> list
+            if (parameterType.IsAssignableFromList(out elementType))
+            {
+                elementTypeInfo = elementType.GetTypeInfo();
+                values = TryMatchParameterList(input, elementTypeInfo);
+                if (allowEmpty || values.Count > 0)
+                {
+                    value = GetTypedList(values, elementType);
+                    return true;
+                }
+                else
+                {
+                    value = null;
+                    return false;
+                }
+            }
+
+            value = null;
+            return false;
         }
         private static double CalculateScore(int matchedCount, int defaultValueCount, int typeDefaultCount, int notTypeDefaultCount, int totalCount)
         {
@@ -414,6 +395,32 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 {
                     result[paramIndex] = parameter.DefaultValue;
                     defaultValueCount++;
+                    continue;
+                }
+
+                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                {
+                    if (extraParamsUsage[searchIndex])
+                        continue;
+                    if (TryMatchValueToList(parameters[searchIndex], paramTypeInfo, false, out value))
+                    {
+                        isValueFound = true;
+                        extraParamsUsage[searchIndex] = true;
+                        if (searchIndex == extraParamsStart)
+                            extraParamsStart++;
+                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
+                            extraParamsStart++;
+                        if (searchIndex == extraParamsEnd)
+                            extraParamsEnd--;
+                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
+                            extraParamsEnd--;
+                        break;
+                    }
+                }
+                if (isValueFound)
+                {
+                    result[paramIndex] = value;
+                    matchedCount++;
                     continue;
                 }
 
@@ -679,6 +686,32 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
+                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                {
+                    if (extraParamsUsage[searchIndex])
+                        continue;
+                    if (TryMatchValueToList(parameters[searchIndex], paramTypeInfo, false, out value))
+                    {
+                        isValueFound = true;
+                        extraParamsUsage[searchIndex] = true;
+                        if (searchIndex == extraParamsStart)
+                            extraParamsStart++;
+                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
+                            extraParamsStart++;
+                        if (searchIndex == extraParamsEnd)
+                            extraParamsEnd--;
+                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
+                            extraParamsEnd--;
+                        break;
+                    }
+                }
+                if (isValueFound)
+                {
+                    result[paramIndex] = value;
+                    matchedCount++;
+                    continue;
+                }
+
                 {
                     result[paramIndex] = paramTypeInfo.DefaultValue();
                     typeDefaultCount++;
@@ -911,6 +944,32 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 {
                     result[paramIndex] = parameter.DefaultValue;
                     defaultValueCount++;
+                    continue;
+                }
+
+                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                {
+                    if (extraParamsUsage[searchIndex])
+                        continue;
+                    if (TryMatchValueToList(parameters[searchIndex], paramTypeInfo, false, out value))
+                    {
+                        isValueFound = true;
+                        extraParamsUsage[searchIndex] = true;
+                        if (searchIndex == extraParamsStart)
+                            extraParamsStart++;
+                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
+                            extraParamsStart++;
+                        if (searchIndex == extraParamsEnd)
+                            extraParamsEnd--;
+                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
+                            extraParamsEnd--;
+                        break;
+                    }
+                }
+                if (isValueFound)
+                {
+                    result[paramIndex] = value;
+                    matchedCount++;
                     continue;
                 }
 
@@ -1189,6 +1248,32 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 {
                     result[paramIndex] = parameter.DefaultValue;
                     defaultValueCount++;
+                    continue;
+                }
+
+                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                {
+                    if (extraParamsUsage[searchIndex])
+                        continue;
+                    if (TryMatchValueToList(parameters[searchIndex], paramTypeInfo, false, out value))
+                    {
+                        isValueFound = true;
+                        extraParamsUsage[searchIndex] = true;
+                        if (searchIndex == extraParamsStart)
+                            extraParamsStart++;
+                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
+                            extraParamsStart++;
+                        if (searchIndex == extraParamsEnd)
+                            extraParamsEnd--;
+                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
+                            extraParamsEnd--;
+                        break;
+                    }
+                }
+                if (isValueFound)
+                {
+                    result[paramIndex] = value;
+                    matchedCount++;
                     continue;
                 }
 
