@@ -11,20 +11,50 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         public ParameterInfo ParameterInfo { get; }
 
         public IServiceProvider Services { get; }
-        public object[] Parameters { get; }
-        public IReadOnlyDictionary<string, object> NamedParameters { get; }
+        public ArgumentTraverseContext Arguments { get; }
+        public IReadOnlyDictionary<string, object> Options { get; }
 
-        internal bool Handled { get; private set; }
+        public bool Handled { get; private set; }
         internal object Value { get; private set; }
 
-        internal ParameterMatchingEventArgs(ParameterInfo parameterInfo, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, object[] parameters)
+        internal ParameterMatchingEventArgs(ParameterInfo parameterInfo, IServiceProvider services, IReadOnlyDictionary<string, object> options, ArgumentTraverseContext arguments)
         {
             ParameterInfo = parameterInfo;
             ParameterName = parameterInfo.Name;
             ParameterType = parameterInfo.ParameterType;
             Services = services;
-            Parameters = parameters;
-            NamedParameters = namedParameters;
+            Arguments = arguments;
+            Options = options;
+        }
+
+        public void SetValue(object value)
+        {
+            if (Handled)
+                throw new Exception("cannot set value in mutiple times");
+            Handled = true;
+            Value = value;
+        }
+        internal void ClearFlags()
+        {
+            Handled = false;
+            Value = null;
+        }
+    }
+
+    public sealed class ValueMatchingEventArgs : EventArgs
+    {
+        public TypeInfo TargetType { get; }
+        public TypeInfo InputType { get; }
+        public object InputValue { get; }
+
+        public bool Handled { get; private set; }
+        internal object Value { get; private set; }
+
+        internal ValueMatchingEventArgs(TypeInfo targetType, TypeInfo inputType, object inputValue)
+        {
+            TargetType = targetType;
+            InputType = inputType;
+            InputValue = inputValue;
         }
 
         public void SetValue(object value)

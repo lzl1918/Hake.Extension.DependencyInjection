@@ -10,13 +10,23 @@ namespace Hake.Extension.DependencyInjection.Abstraction
     public static class ObjectFactory
     {
         public static event EventHandler<ParameterMatchingEventArgs> ParameterMatching;
+        public static event EventHandler<ValueMatchingEventArgs> ValueMatching;
 
-        internal static ParameterMatchingEventArgs RaiseEvent(ParameterInfo parameter, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, object[] parameters)
+        internal static ValueMatchingEventArgs RaiseValueMatchingEvent(TypeInfo targetType, TypeInfo inputType, object inputValue)
+        {
+            if (ValueMatching == null)
+                return null;
+
+            ValueMatchingEventArgs args = new ValueMatchingEventArgs(targetType, inputType, inputValue);
+            ValueMatching.Invoke(null, args);
+            return args;
+        }
+        internal static ParameterMatchingEventArgs RaiseParameterMatchingEvent(ParameterInfo parameter, IServiceProvider services, IReadOnlyDictionary<string, object> options, ArgumentTraverseContext arguments)
         {
             if (ParameterMatching == null)
                 return null;
 
-            ParameterMatchingEventArgs args = new ParameterMatchingEventArgs(parameter, services, namedParameters, parameters);
+            ParameterMatchingEventArgs args = new ParameterMatchingEventArgs(parameter, services, options, arguments);
             ParameterMatching.Invoke(null, args);
             return args;
         }

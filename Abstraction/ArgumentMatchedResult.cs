@@ -83,14 +83,21 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     return false;
                 }
             }
+
+            ValueMatchingEventArgs args = ObjectFactory.RaiseValueMatchingEvent(assignLeft, assignRight, input);
+            if (args != null && args.Handled)
+            {
+                value = args.Value;
+                return true;
+            }
             value = null;
             return false;
         }
-        private static bool TryFindParameterFromDictionary(string paramName, TypeInfo paramTypeInfo, IReadOnlyDictionary<string, object> namedParameters, out object matchedValue)
+        private static bool TryFindParameterFromDictionary(string paramName, TypeInfo paramTypeInfo, IReadOnlyDictionary<string, object> options, out object matchedValue)
         {
             object mappedParam;
             object value;
-            if (namedParameters.TryGetValue(paramName, out mappedParam) && mappedParam != null)
+            if (options.TryGetValue(paramName, out mappedParam) && mappedParam != null)
             {
                 Type valueType = mappedParam.GetType();
                 TypeInfo valueTypeInfo = valueType.GetTypeInfo();
@@ -236,7 +243,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 // no need of checking 'ref'
 
-                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, null, null, null);
+                matchingEventArgs = ObjectFactory.RaiseParameterMatchingEvent(parameter, null, null, null);
                 if (matchingEventArgs != null && matchingEventArgs.Handled)
                 {
                     result[paramIndex] = matchingEventArgs.Value;
@@ -271,14 +278,12 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
 
-            int extraParamsCount = parameters.Length;
-            bool[] extraParamsUsage = new bool[extraParamsCount];
-            TypeInfo[] extraParamTypes = new TypeInfo[extraParamsCount];
-            int extraParamsStart = 0;
-            int extraParamsEnd = extraParamsCount - 1;
-            int searchIndex;
-            for (int i = 0; i < extraParamsCount; i++)
-                extraParamTypes[i] = parameters[i].GetType().GetTypeInfo();
+            ArgumentTraverseContext traverseContext = new ArgumentTraverseContext(parameters);
+            bool traverseResult;
+            int inputParameterCount = parameters.Length;
+            TypeInfo[] inputParameterTypes = new TypeInfo[inputParameterCount];
+            for (int i = 0; i < inputParameterCount; i++)
+                inputParameterTypes[i] = parameters[i].GetType().GetTypeInfo();
 
             ParameterInfo[] methodParameters = method.GetParameters();
             int paramCount = methodParameters.Length;
@@ -307,24 +312,19 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
                     TypeInfo elementTypeInfo = elementType.GetTypeInfo();
-                    for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                    traverseContext.Reset();
+                    do
                     {
-                        if (extraParamsUsage[searchIndex])
-                            continue;
-                        if (TryMatchParameterType(elementTypeInfo, extraParamTypes[searchIndex], parameters[searchIndex], out value))
+                        traverseResult = traverseContext.GoNext((input, index) =>
                         {
-                            extraParamsUsage[searchIndex] = true;
-                            extras.Add(value);
-                            if (searchIndex == extraParamsStart)
-                                extraParamsStart++;
-                            while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                                extraParamsStart++;
-                            if (searchIndex == extraParamsEnd)
-                                extraParamsEnd--;
-                            while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                                extraParamsEnd--;
-                        }
-                    }
+                            if (TryMatchParameterType(elementTypeInfo, inputParameterTypes[index], input, out value))
+                            {
+                                extras.Add(value);
+                                return true;
+                            }
+                            return false;
+                        });
+                    } while (traverseResult);
                     result[paramIndex] = GetTypedArray(extras, elementType);
                     matchedCount++;
                     continue;
@@ -340,25 +340,13 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 isValueFound = false;
                 value = null;
-                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                traverseContext.Reset();
+                do
                 {
-                    if (extraParamsUsage[searchIndex])
-                        continue;
-                    if (TryMatchParameterType(paramTypeInfo, extraParamTypes[searchIndex], parameters[searchIndex], out value))
-                    {
-                        isValueFound = true;
-                        extraParamsUsage[searchIndex] = true;
-                        if (searchIndex == extraParamsStart)
-                            extraParamsStart++;
-                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                            extraParamsStart++;
-                        if (searchIndex == extraParamsEnd)
-                            extraParamsEnd--;
-                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                            extraParamsEnd--;
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchParameterType(paramTypeInfo, inputParameterTypes[index], input, out value)));
+                    if (isValueFound)
                         break;
-                    }
-                }
+                } while (traverseResult);
                 if (isValueFound)
                 {
                     result[paramIndex] = value;
@@ -366,26 +354,21 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
-                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, null, null, parameters);
+                traverseContext.Reset();
+                matchingEventArgs = ObjectFactory.RaiseParameterMatchingEvent(parameter, null, null, traverseContext);
                 if (matchingEventArgs != null && matchingEventArgs.Handled)
                 {
                     value = matchingEventArgs.Value;
                     if (value != null)
-                        for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
-                            if (ReferenceEquals(value, parameters[searchIndex]))
-                            {
-                                extraParamsUsage[searchIndex] = true;
-                                if (searchIndex == extraParamsStart)
-                                    extraParamsStart++;
-                                while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                                    extraParamsStart++;
-                                if (searchIndex == extraParamsEnd)
-                                    extraParamsEnd--;
-                                while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                                    extraParamsEnd--;
+                    {
+                        traverseContext.Reset();
+                        do
+                        {
+                            traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReferenceEquals(value, input)));
+                            if (isValueFound)
                                 break;
-                            }
-
+                        } while (traverseResult);
+                    }
                     result[paramIndex] = value;
                     matchedCount++;
                     continue;
@@ -398,25 +381,13 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
-                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                traverseContext.Reset();
+                do
                 {
-                    if (extraParamsUsage[searchIndex])
-                        continue;
-                    if (TryMatchValueToList(parameters[searchIndex], paramTypeInfo, false, out value))
-                    {
-                        isValueFound = true;
-                        extraParamsUsage[searchIndex] = true;
-                        if (searchIndex == extraParamsStart)
-                            extraParamsStart++;
-                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                            extraParamsStart++;
-                        if (searchIndex == extraParamsEnd)
-                            extraParamsEnd--;
-                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                            extraParamsEnd--;
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchValueToList(input, paramTypeInfo, false, out value)));
+                    if (isValueFound)
                         break;
-                    }
-                }
+                } while (traverseResult);
                 if (isValueFound)
                 {
                     result[paramIndex] = value;
@@ -436,9 +407,9 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 score = CalculateScore(matchedCount, defaultValueCount, typeDefaultCount, notTypeDefaultCount, paramCount);
             return new ArgumentMatchedResult(method, result, score, isPassed);
         }
-        public static ArgumentMatchedResult Match(MethodBase method, IReadOnlyDictionary<string, object> namedParameters)
+        public static ArgumentMatchedResult Match(MethodBase method, IReadOnlyDictionary<string, object> options)
         {
-            if (namedParameters == null)
+            if (options == null)
                 return Match(method);
 
             if (method == null)
@@ -472,7 +443,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
                     TypeInfo elementTypeInfo = elementType.GetTypeInfo();
-                    foreach (var pair in namedParameters)
+                    foreach (var pair in options)
                     {
                         if (usedKeys.Contains(pair.Key))
                             continue;
@@ -494,7 +465,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 value = null;
                 paramName = parameter.Name.ToLower();
-                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, namedParameters, out value))
+                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, options, out value))
                 {
                     usedKeys.Add(paramName);
                     result[paramIndex] = value;
@@ -502,7 +473,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
-                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, null, namedParameters, null);
+                matchingEventArgs = ObjectFactory.RaiseParameterMatchingEvent(parameter, null, options, null);
                 if (matchingEventArgs != null && matchingEventArgs.Handled)
                 {
                     result[paramIndex] = matchingEventArgs.Value;
@@ -530,24 +501,21 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             return new ArgumentMatchedResult(method, result, score, isPassed);
 
         }
-        public static ArgumentMatchedResult Match(MethodBase method, IReadOnlyDictionary<string, object> namedParameters, object[] parameters)
+        public static ArgumentMatchedResult Match(MethodBase method, IReadOnlyDictionary<string, object> options, object[] parameters)
         {
-            if (namedParameters == null)
+            if (options == null)
                 return Match(method, parameters);
             if (parameters == null)
-                return Match(method, namedParameters);
-
+                return Match(method, options);
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
 
-            int extraParamsCount = parameters.Length;
-            bool[] extraParamsUsage = new bool[extraParamsCount];
-            TypeInfo[] extraParamTypes = new TypeInfo[extraParamsCount];
-            int extraParamsStart = 0;
-            int extraParamsEnd = extraParamsCount - 1;
-            int searchIndex;
-            for (int i = 0; i < extraParamsCount; i++)
-                extraParamTypes[i] = parameters[i].GetType().GetTypeInfo();
+            ArgumentTraverseContext traverseContext = new ArgumentTraverseContext(parameters);
+            bool traverseResult;
+            int inputParameterCount = parameters.Length;
+            TypeInfo[] inputParameterTypes = new TypeInfo[inputParameterCount];
+            for (int i = 0; i < inputParameterCount; i++)
+                inputParameterTypes[i] = parameters[i].GetType().GetTypeInfo();
 
             SortedSet<string> usedKeys = new SortedSet<string>();
             ParameterInfo[] methodParameters = method.GetParameters();
@@ -578,31 +546,27 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
                     TypeInfo elementTypeInfo = elementType.GetTypeInfo();
-                    foreach (var pair in namedParameters)
+                    foreach (var pair in options)
                     {
                         if (usedKeys.Contains(pair.Key))
                             continue;
                         if (TryMatchParameterType(elementTypeInfo, pair.Value.GetType().GetTypeInfo(), pair.Value, out value))
                             extras.Add(value);
                     }
-                    for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+
+                    traverseContext.Reset();
+                    do
                     {
-                        if (extraParamsUsage[searchIndex])
-                            continue;
-                        if (TryMatchParameterType(elementTypeInfo, extraParamTypes[searchIndex], parameters[searchIndex], out value))
+                        traverseResult = traverseContext.GoNext((input, index) =>
                         {
-                            extraParamsUsage[searchIndex] = true;
-                            extras.Add(value);
-                            if (searchIndex == extraParamsStart)
-                                extraParamsStart++;
-                            while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                                extraParamsStart++;
-                            if (searchIndex == extraParamsEnd)
-                                extraParamsEnd--;
-                            while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                                extraParamsEnd--;
-                        }
-                    }
+                            if (TryMatchParameterType(elementTypeInfo, inputParameterTypes[index], input, out value))
+                            {
+                                extras.Add(value);
+                                return true;
+                            }
+                            return false;
+                        });
+                    } while (traverseResult);
                     result[paramIndex] = GetTypedArray(extras, elementType);
                     matchedCount++;
                     continue;
@@ -618,7 +582,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 value = null;
                 paramName = parameter.Name.ToLower();
-                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, namedParameters, out value))
+                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, options, out value))
                 {
                     isValueFound = true;
                     usedKeys.Add(paramName);
@@ -628,25 +592,13 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 }
 
                 isValueFound = false;
-                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                traverseContext.Reset();
+                do
                 {
-                    if (extraParamsUsage[searchIndex])
-                        continue;
-                    if (TryMatchParameterType(paramTypeInfo, extraParamTypes[searchIndex], parameters[searchIndex], out value))
-                    {
-                        isValueFound = true;
-                        extraParamsUsage[searchIndex] = true;
-                        if (searchIndex == extraParamsStart)
-                            extraParamsStart++;
-                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                            extraParamsStart++;
-                        if (searchIndex == extraParamsEnd)
-                            extraParamsEnd--;
-                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                            extraParamsEnd--;
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchParameterType(paramTypeInfo, inputParameterTypes[index], input, out value)));
+                    if (isValueFound)
                         break;
-                    }
-                }
+                } while (traverseResult);
                 if (isValueFound)
                 {
                     result[paramIndex] = value;
@@ -654,26 +606,21 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
-                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, null, namedParameters, parameters);
+                traverseContext.Reset();
+                matchingEventArgs = ObjectFactory.RaiseParameterMatchingEvent(parameter, null, options, traverseContext);
                 if (matchingEventArgs != null && matchingEventArgs.Handled)
                 {
                     value = matchingEventArgs.Value;
                     if (value != null)
-                        for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
-                            if (ReferenceEquals(value, parameters[searchIndex]))
-                            {
-                                extraParamsUsage[searchIndex] = true;
-                                if (searchIndex == extraParamsStart)
-                                    extraParamsStart++;
-                                while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                                    extraParamsStart++;
-                                if (searchIndex == extraParamsEnd)
-                                    extraParamsEnd--;
-                                while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                                    extraParamsEnd--;
+                    {
+                        traverseContext.Reset();
+                        do
+                        {
+                            traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReferenceEquals(value, input)));
+                            if (isValueFound)
                                 break;
-                            }
-
+                        } while (traverseResult);
+                    }
                     result[paramIndex] = value;
                     matchedCount++;
                     continue;
@@ -686,25 +633,13 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
-                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                traverseContext.Reset();
+                do
                 {
-                    if (extraParamsUsage[searchIndex])
-                        continue;
-                    if (TryMatchValueToList(parameters[searchIndex], paramTypeInfo, false, out value))
-                    {
-                        isValueFound = true;
-                        extraParamsUsage[searchIndex] = true;
-                        if (searchIndex == extraParamsStart)
-                            extraParamsStart++;
-                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                            extraParamsStart++;
-                        if (searchIndex == extraParamsEnd)
-                            extraParamsEnd--;
-                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                            extraParamsEnd--;
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchValueToList(input, paramTypeInfo, false, out value)));
+                    if (isValueFound)
                         break;
-                    }
-                }
+                } while (traverseResult);
                 if (isValueFound)
                 {
                     result[paramIndex] = value;
@@ -777,7 +712,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
-                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, services, null, null);
+                matchingEventArgs = ObjectFactory.RaiseParameterMatchingEvent(parameter, services, null, null);
                 if (matchingEventArgs != null && matchingEventArgs.Handled)
                 {
                     result[paramIndex] = matchingEventArgs.Value;
@@ -813,14 +748,12 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
 
-            int extraParamsCount = parameters.Length;
-            bool[] extraParamsUsage = new bool[extraParamsCount];
-            TypeInfo[] extraParamTypes = new TypeInfo[extraParamsCount];
-            int extraParamsStart = 0;
-            int extraParamsEnd = extraParamsCount - 1;
-            int searchIndex;
-            for (int i = 0; i < extraParamsCount; i++)
-                extraParamTypes[i] = parameters[i].GetType().GetTypeInfo();
+            ArgumentTraverseContext traverseContext = new ArgumentTraverseContext(parameters);
+            bool traverseResult;
+            int inputParameterCount = parameters.Length;
+            TypeInfo[] inputParameterTypes = new TypeInfo[inputParameterCount];
+            for (int i = 0; i < inputParameterCount; i++)
+                inputParameterTypes[i] = parameters[i].GetType().GetTypeInfo();
 
             ParameterInfo[] methodParameters = method.GetParameters();
             int paramCount = methodParameters.Length;
@@ -849,24 +782,19 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
                     TypeInfo elementTypeInfo = elementType.GetTypeInfo();
-                    for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                    traverseContext.Reset();
+                    do
                     {
-                        if (extraParamsUsage[searchIndex])
-                            continue;
-                        if (TryMatchParameterType(elementTypeInfo, extraParamTypes[searchIndex], parameters[searchIndex], out value))
+                        traverseResult = traverseContext.GoNext((input, index) =>
                         {
-                            extraParamsUsage[searchIndex] = true;
-                            extras.Add(value);
-                            if (searchIndex == extraParamsStart)
-                                extraParamsStart++;
-                            while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                                extraParamsStart++;
-                            if (searchIndex == extraParamsEnd)
-                                extraParamsEnd--;
-                            while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                                extraParamsEnd--;
-                        }
-                    }
+                            if (TryMatchParameterType(elementTypeInfo, inputParameterTypes[index], input, out value))
+                            {
+                                extras.Add(value);
+                                return true;
+                            }
+                            return false;
+                        });
+                    } while (traverseResult);
                     result[paramIndex] = GetTypedArray(extras, elementType);
                     matchedCount++;
                     continue;
@@ -882,25 +810,13 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 isValueFound = false;
                 value = null;
-                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                traverseContext.Reset();
+                do
                 {
-                    if (extraParamsUsage[searchIndex])
-                        continue;
-                    if (TryMatchParameterType(paramTypeInfo, extraParamTypes[searchIndex], parameters[searchIndex], out value))
-                    {
-                        isValueFound = true;
-                        extraParamsUsage[searchIndex] = true;
-                        if (searchIndex == extraParamsStart)
-                            extraParamsStart++;
-                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                            extraParamsStart++;
-                        if (searchIndex == extraParamsEnd)
-                            extraParamsEnd--;
-                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                            extraParamsEnd--;
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchParameterType(paramTypeInfo, inputParameterTypes[index], input, out value)));
+                    if (isValueFound)
                         break;
-                    }
-                }
+                } while (traverseResult);
                 if (isValueFound)
                 {
                     result[paramIndex] = value;
@@ -915,26 +831,21 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
-                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, services, null, parameters);
+                traverseContext.Reset();
+                matchingEventArgs = ObjectFactory.RaiseParameterMatchingEvent(parameter, services, null, traverseContext);
                 if (matchingEventArgs != null && matchingEventArgs.Handled)
                 {
                     value = matchingEventArgs.Value;
                     if (value != null)
-                        for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
-                            if (ReferenceEquals(value, parameters[searchIndex]))
-                            {
-                                extraParamsUsage[searchIndex] = true;
-                                if (searchIndex == extraParamsStart)
-                                    extraParamsStart++;
-                                while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                                    extraParamsStart++;
-                                if (searchIndex == extraParamsEnd)
-                                    extraParamsEnd--;
-                                while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                                    extraParamsEnd--;
+                    {
+                        traverseContext.Reset();
+                        do
+                        {
+                            traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReferenceEquals(value, input)));
+                            if (isValueFound)
                                 break;
-                            }
-
+                        } while (traverseResult);
+                    }
                     result[paramIndex] = value;
                     matchedCount++;
                     continue;
@@ -947,25 +858,13 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
-                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                traverseContext.Reset();
+                do
                 {
-                    if (extraParamsUsage[searchIndex])
-                        continue;
-                    if (TryMatchValueToList(parameters[searchIndex], paramTypeInfo, false, out value))
-                    {
-                        isValueFound = true;
-                        extraParamsUsage[searchIndex] = true;
-                        if (searchIndex == extraParamsStart)
-                            extraParamsStart++;
-                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                            extraParamsStart++;
-                        if (searchIndex == extraParamsEnd)
-                            extraParamsEnd--;
-                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                            extraParamsEnd--;
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchValueToList(input, paramTypeInfo, false, out value)));
+                    if (isValueFound)
                         break;
-                    }
-                }
+                } while (traverseResult);
                 if (isValueFound)
                 {
                     result[paramIndex] = value;
@@ -985,11 +884,11 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 score = CalculateScore(matchedCount, defaultValueCount, typeDefaultCount, notTypeDefaultCount, paramCount);
             return new ArgumentMatchedResult(method, result, score, isPassed);
         }
-        public static ArgumentMatchedResult Match(MethodBase method, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters)
+        public static ArgumentMatchedResult Match(MethodBase method, IServiceProvider services, IReadOnlyDictionary<string, object> options)
         {
             if (services == null)
-                return Match(method, namedParameters);
-            if (namedParameters == null)
+                return Match(method, options);
+            if (options == null)
                 return Match(method, services);
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
@@ -1022,7 +921,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
                     TypeInfo elementTypeInfo = elementType.GetTypeInfo();
-                    foreach (var pair in namedParameters)
+                    foreach (var pair in options)
                     {
                         if (usedKeys.Contains(pair.Key))
                             continue;
@@ -1044,7 +943,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 value = null;
                 paramName = parameter.Name.ToLower();
-                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, namedParameters, out value))
+                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, options, out value))
                 {
                     usedKeys.Add(paramName);
                     result[paramIndex] = value;
@@ -1059,7 +958,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
-                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, services, namedParameters, null);
+                matchingEventArgs = ObjectFactory.RaiseParameterMatchingEvent(parameter, services, options, null);
                 if (matchingEventArgs != null && matchingEventArgs.Handled)
                 {
                     result[paramIndex] = matchingEventArgs.Value;
@@ -1087,25 +986,23 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             return new ArgumentMatchedResult(method, result, score, isPassed);
 
         }
-        public static ArgumentMatchedResult Match(MethodBase method, IServiceProvider services, IReadOnlyDictionary<string, object> namedParameters, object[] parameters)
+        public static ArgumentMatchedResult Match(MethodBase method, IServiceProvider services, IReadOnlyDictionary<string, object> options, object[] parameters)
         {
             if (services == null)
-                return Match(method, namedParameters, parameters);
-            if (namedParameters == null)
+                return Match(method, options, parameters);
+            if (options == null)
                 return Match(method, services, parameters);
             if (parameters == null)
-                return Match(method, services, namedParameters);
+                return Match(method, services, options);
             if (method == null)
                 throw new ArgumentNullException(nameof(method));
 
-            int extraParamsCount = parameters.Length;
-            bool[] extraParamsUsage = new bool[extraParamsCount];
-            TypeInfo[] extraParamTypes = new TypeInfo[extraParamsCount];
-            int extraParamsStart = 0;
-            int extraParamsEnd = extraParamsCount - 1;
-            int searchIndex;
-            for (int i = 0; i < extraParamsCount; i++)
-                extraParamTypes[i] = parameters[i].GetType().GetTypeInfo();
+            ArgumentTraverseContext traverseContext = new ArgumentTraverseContext(parameters);
+            bool traverseResult;
+            int inputParameterCount = parameters.Length;
+            TypeInfo[] inputParameterTypes = new TypeInfo[inputParameterCount];
+            for (int i = 0; i < inputParameterCount; i++)
+                inputParameterTypes[i] = parameters[i].GetType().GetTypeInfo();
 
             SortedSet<string> usedKeys = new SortedSet<string>();
             ParameterInfo[] methodParameters = method.GetParameters();
@@ -1136,31 +1033,26 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
                     TypeInfo elementTypeInfo = elementType.GetTypeInfo();
-                    foreach (var pair in namedParameters)
+                    foreach (var pair in options)
                     {
                         if (usedKeys.Contains(pair.Key))
                             continue;
                         if (TryMatchParameterType(elementTypeInfo, pair.Value.GetType().GetTypeInfo(), pair.Value, out value))
                             extras.Add(value);
                     }
-                    for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                    traverseContext.Reset();
+                    do
                     {
-                        if (extraParamsUsage[searchIndex])
-                            continue;
-                        if (TryMatchParameterType(elementTypeInfo, extraParamTypes[searchIndex], parameters[searchIndex], out value))
+                        traverseResult = traverseContext.GoNext((input, index) =>
                         {
-                            extraParamsUsage[searchIndex] = true;
-                            extras.Add(value);
-                            if (searchIndex == extraParamsStart)
-                                extraParamsStart++;
-                            while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                                extraParamsStart++;
-                            if (searchIndex == extraParamsEnd)
-                                extraParamsEnd--;
-                            while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                                extraParamsEnd--;
-                        }
-                    }
+                            if (TryMatchParameterType(elementTypeInfo, inputParameterTypes[index], input, out value))
+                            {
+                                extras.Add(value);
+                                return true;
+                            }
+                            return false;
+                        });
+                    } while (traverseResult);
                     result[paramIndex] = GetTypedArray(extras, elementType);
                     matchedCount++;
                     continue;
@@ -1176,7 +1068,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 value = null;
                 paramName = parameter.Name.ToLower();
-                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, namedParameters, out value))
+                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, options, out value))
                 {
                     isValueFound = true;
                     usedKeys.Add(paramName);
@@ -1186,25 +1078,13 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 }
 
                 isValueFound = false;
-                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                traverseContext.Reset();
+                do
                 {
-                    if (extraParamsUsage[searchIndex])
-                        continue;
-                    if (TryMatchParameterType(paramTypeInfo, extraParamTypes[searchIndex], parameters[searchIndex], out value))
-                    {
-                        isValueFound = true;
-                        extraParamsUsage[searchIndex] = true;
-                        if (searchIndex == extraParamsStart)
-                            extraParamsStart++;
-                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                            extraParamsStart++;
-                        if (searchIndex == extraParamsEnd)
-                            extraParamsEnd--;
-                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                            extraParamsEnd--;
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchParameterType(paramTypeInfo, inputParameterTypes[index], input, out value)));
+                    if (isValueFound)
                         break;
-                    }
-                }
+                } while (traverseResult);
                 if (isValueFound)
                 {
                     result[paramIndex] = value;
@@ -1219,26 +1099,21 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
-                matchingEventArgs = ObjectFactory.RaiseEvent(parameter, services, namedParameters, parameters);
+                traverseContext.Reset();
+                matchingEventArgs = ObjectFactory.RaiseParameterMatchingEvent(parameter, services, options, traverseContext);
                 if (matchingEventArgs != null && matchingEventArgs.Handled)
                 {
                     value = matchingEventArgs.Value;
                     if (value != null)
-                        for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
-                            if (ReferenceEquals(value, parameters[searchIndex]))
-                            {
-                                extraParamsUsage[searchIndex] = true;
-                                if (searchIndex == extraParamsStart)
-                                    extraParamsStart++;
-                                while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                                    extraParamsStart++;
-                                if (searchIndex == extraParamsEnd)
-                                    extraParamsEnd--;
-                                while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                                    extraParamsEnd--;
+                    {
+                        traverseContext.Reset();
+                        do
+                        {
+                            traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReferenceEquals(value, input)));
+                            if (isValueFound)
                                 break;
-                            }
-
+                        } while (traverseResult);
+                    }
                     result[paramIndex] = value;
                     matchedCount++;
                     continue;
@@ -1251,25 +1126,13 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     continue;
                 }
 
-                for (searchIndex = extraParamsStart; searchIndex <= extraParamsEnd; searchIndex++)
+                traverseContext.Reset();
+                do
                 {
-                    if (extraParamsUsage[searchIndex])
-                        continue;
-                    if (TryMatchValueToList(parameters[searchIndex], paramTypeInfo, false, out value))
-                    {
-                        isValueFound = true;
-                        extraParamsUsage[searchIndex] = true;
-                        if (searchIndex == extraParamsStart)
-                            extraParamsStart++;
-                        while (extraParamsStart < extraParamsCount && extraParamsUsage[extraParamsStart])
-                            extraParamsStart++;
-                        if (searchIndex == extraParamsEnd)
-                            extraParamsEnd--;
-                        while (extraParamsEnd >= 0 && extraParamsUsage[extraParamsEnd])
-                            extraParamsEnd--;
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchValueToList(input, paramTypeInfo, false, out value)));
+                    if (isValueFound)
                         break;
-                    }
-                }
+                } while (traverseResult);
                 if (isValueFound)
                 {
                     result[paramIndex] = value;

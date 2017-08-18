@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 
@@ -57,6 +58,11 @@ namespace Test
         public int ListSum(IEnumerable<int> list)
         {
             return list.Sum();
+        }
+
+        public DirectoryInfo TestChange(DirectoryInfo input)
+        {
+            return input;
         }
     }
 

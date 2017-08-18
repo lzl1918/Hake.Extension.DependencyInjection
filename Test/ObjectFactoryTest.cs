@@ -3,6 +3,7 @@ using Hake.Extension.DependencyInjection.Implementations;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Text;
 
@@ -280,6 +281,25 @@ namespace Test
             context.Arguments[0] = new int[] { 1, 2, 3, 4 };
             ret = context.Invoke(obj);
             Assert.AreEqual(4, ret);
+
+            ObjectFactory.ValueMatching += OnValueMatching;
+            DirectoryInfo val = (DirectoryInfo) ObjectFactory.InvokeMethod(obj, nameof(obj.TestChange), "D:\\");
+            Assert.AreEqual("D:\\", val.FullName);
+        }
+
+        private void OnValueMatching(object sender, ValueMatchingEventArgs e)
+        {
+            if (e.Handled)
+                return;
+
+            if (e.TargetType.Name == "DirectoryInfo" && e.InputType.Name == "String")
+            {
+                string value = e.InputValue as string;
+                if (value != null)
+                    e.SetValue(new DirectoryInfo(value));
+                else
+                    e.SetValue(null);
+            }
         }
     }
 }
