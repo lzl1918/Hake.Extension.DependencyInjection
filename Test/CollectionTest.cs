@@ -1,8 +1,8 @@
 using System;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Hake.Extension.DependencyInjection.Abstraction;
-using Hake.Extension.DependencyInjection.Implementations;
 using System.Linq;
+using Hake.Extension.DependencyInjection;
 
 namespace Test
 {

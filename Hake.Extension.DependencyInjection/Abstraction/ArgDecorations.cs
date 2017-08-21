@@ -17,20 +17,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         }
     }
 
-    public sealed class In<T>
-    {
-        public T Value { get; set; }
-        private In(T value)
-        {
-            Value = value;
-        }
-
-        public static In<T> Create(T value)
-        {
-            return new In<T>(value);
-        }
-    }
-
     public sealed class Ref<T>
     {
         public T Value { get; set; }

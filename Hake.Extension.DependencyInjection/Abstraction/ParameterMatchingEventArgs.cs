@@ -40,34 +40,4 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             Value = null;
         }
     }
-
-    public sealed class ValueMatchingEventArgs : EventArgs
-    {
-        public TypeInfo TargetType { get; }
-        public TypeInfo InputType { get; }
-        public object InputValue { get; }
-
-        public bool Handled { get; private set; }
-        internal object Value { get; private set; }
-
-        internal ValueMatchingEventArgs(TypeInfo targetType, TypeInfo inputType, object inputValue)
-        {
-            TargetType = targetType;
-            InputType = inputType;
-            InputValue = inputValue;
-        }
-
-        public void SetValue(object value)
-        {
-            if (Handled)
-                throw new Exception("cannot set value in mutiple times");
-            Handled = true;
-            Value = value;
-        }
-        internal void ClearFlags()
-        {
-            Handled = false;
-            Value = null;
-        }
-    }
 }

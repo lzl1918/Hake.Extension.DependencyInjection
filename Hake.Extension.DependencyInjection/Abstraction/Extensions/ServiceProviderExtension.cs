@@ -15,16 +15,14 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
         public static bool TryGetService(this IServiceProvider provider, Type serviceType, out object instance)
         {
-            if (serviceType == null || provider == null)
+            if (provider == null || serviceType == null)
             {
                 instance = null;
                 return false;
             }
 
-            if(provider is IExtendedServiceProvider extendedProvider)
-            {
+            if (provider is IExtendedServiceProvider extendedProvider)
                 return extendedProvider.TryGetService(serviceType, out instance);
-            }
 
             try
             {
@@ -33,7 +31,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             }
             catch (Exception)
             {
-
                 instance = null;
                 return false;
             }
@@ -41,9 +38,14 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
         public static bool TryGetService<T>(this IServiceProvider provider, out T instance)
         {
+            if (provider == null)
+            {
+                instance = default(T);
+                return false;
+            }
+
             object temperoryInstance;
-            bool result = TryGetService(provider, typeof(T), out temperoryInstance);
-            if (result == true)
+            if (TryGetService(provider, typeof(T), out temperoryInstance))
             {
                 instance = (T)temperoryInstance;
                 return true;
@@ -59,18 +61,19 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         {
             return ObjectFactory.CreateInstance(instanceType, provider, parameters);
         }
-        public static object CreateInstance(this IServiceProvider provider, Type instanceType, IReadOnlyDictionary<string, object> valueMap, params object[] parameters)
+        public static object CreateInstance(this IServiceProvider provider, Type instanceType, IReadOnlyDictionary<string, object> options, params object[] parameters)
         {
-            return ObjectFactory.CreateInstance(instanceType, provider, valueMap, parameters);
+            return ObjectFactory.CreateInstance(instanceType, provider, options, parameters);
         }
         public static T CreateInstance<T>(this IServiceProvider provider, params object[] parameters)
         {
             return ObjectFactory.CreateInstance<T>(provider, parameters);
         }
-        public static T CreateInstance<T>(this IServiceProvider provider, IReadOnlyDictionary<string, object> valueMap, params object[] parameters)
+        public static T CreateInstance<T>(this IServiceProvider provider, IReadOnlyDictionary<string, object> options, params object[] parameters)
         {
-            return ObjectFactory.CreateInstance<T>(provider, valueMap, parameters);
+            return ObjectFactory.CreateInstance<T>(provider, options, parameters);
         }
+
         public static bool TryCreateInstance(this IServiceProvider provider, Type instanceType, out object instance, params object[] parameters)
         {
             try
@@ -84,11 +87,11 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 return false;
             }
         }
-        public static bool TryCreateInstance(this IServiceProvider provider, Type instanceType, IReadOnlyDictionary<string, object> valueMap, out object instance, params object[] parameters)
+        public static bool TryCreateInstance(this IServiceProvider provider, Type instanceType, IReadOnlyDictionary<string, object> options, out object instance, params object[] parameters)
         {
             try
             {
-                instance = CreateInstance(provider, instanceType, valueMap, parameters);
+                instance = CreateInstance(provider, instanceType, options, parameters);
                 return true;
             }
             catch
@@ -110,11 +113,11 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 return false;
             }
         }
-        public static bool TryCreateInstance<T>(this IServiceProvider provider, IReadOnlyDictionary<string, object> valueMap, out T instance, params object[] parameters)
+        public static bool TryCreateInstance<T>(this IServiceProvider provider, IReadOnlyDictionary<string, object> options, out T instance, params object[] parameters)
         {
             try
             {
-                instance = CreateInstance<T>(provider, valueMap, parameters);
+                instance = CreateInstance<T>(provider, options, parameters);
                 return true;
             }
             catch

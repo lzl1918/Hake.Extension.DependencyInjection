@@ -1,10 +1,10 @@
-﻿using Hake.Extension.DependencyInjection.Abstraction.Internal;
+﻿using Hake.Extension.DependencyInjection.Abstraction.Internals.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
 
-namespace Hake.Extension.DependencyInjection.Abstraction
+namespace Hake.Extension.DependencyInjection.Abstraction.Internals
 {
     // parameter score:
     //      val_matched  : 100%
@@ -19,7 +19,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         private const double TYPE_DEFAULT_RATIO = 0.5;
         private const double NOT_TYPE_DEFAULT_RATIO = 0.25;
 
-
         public double Score { get; }
         public bool IsPassed { get; }
         public MethodBase Method { get; }
@@ -33,161 +32,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             Result = result;
         }
 
-        private static object GetTypedArray(List<object> values, Type elementType)
-        {
-            int count = values.Count;
-            Type arrayType = elementType.MakeArrayType();
-            object array = Activator.CreateInstance(arrayType, count);
-            MethodInfo method = arrayType.GetMethod("Set", BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
-            object[] param = new object[2];
-            for (int i = 0; i < count; i++)
-            {
-                param[0] = i;
-                param[1] = values[i];
-                method.Invoke(array, param);
-            }
-            return array;
-        }
-        private static object GetTypedList(List<object> values, Type elementType)
-        {
-            int count = values.Count;
-            object list = Internal.TypeExtensions.CreateList(elementType);
-            Type listType = list.GetType();
-            MethodInfo method = listType.GetMethod("Add", BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
-            object[] param = new object[1];
-            for (int i = 0; i < count; i++)
-            {
-                param[0] = values[i];
-                method.Invoke(list, param);
-            }
-            return list;
-        }
-
-        private static bool TryMatchParameterType(TypeInfo assignLeft, TypeInfo assignRight, object input, out object value)
-        {
-            if (assignLeft.IsAssignableFrom(assignRight))
-            {
-                value = input;
-                return true;
-            }
-            else if (assignLeft.GetInterface("System.IConvertible") != null && assignRight.GetInterface("System.IConvertible") != null)
-            {
-                try
-                {
-                    value = Convert.ChangeType(input, assignLeft.AsType());
-                    return true;
-                }
-                catch
-                {
-                    value = null;
-                    return false;
-                }
-            }
-
-            ValueMatchingEventArgs args = ObjectFactory.RaiseValueMatchingEvent(assignLeft, assignRight, input);
-            if (args != null && args.Handled)
-            {
-                value = args.Value;
-                return true;
-            }
-            value = null;
-            return false;
-        }
-        private static bool TryFindParameterFromDictionary(string paramName, TypeInfo paramTypeInfo, IReadOnlyDictionary<string, object> options, out object matchedValue)
-        {
-            object mappedParam;
-            object value;
-            if (options.TryGetValue(paramName, out mappedParam) && mappedParam != null)
-            {
-                Type valueType = mappedParam.GetType();
-                TypeInfo valueTypeInfo = valueType.GetTypeInfo();
-                if (TryMatchParameterType(paramTypeInfo, valueTypeInfo, mappedParam, out value))
-                {
-                    matchedValue = value;
-                    return true;
-                }
-                else
-                    return TryMatchValueToList(mappedParam, paramTypeInfo, true, out matchedValue);
-            }
-            else
-            {
-                matchedValue = null;
-                return false;
-            }
-        }
-        private static List<object> TryMatchParameterList(object input, TypeInfo elementTypeInfo)
-        {
-            TypeInfo inputTypeInfo = input.GetType().GetTypeInfo();
-            Type enumType = inputTypeInfo.GetIEnumerableInfo();
-            List<object> result = new List<object>();
-            object value;
-            if (TryMatchParameterType(elementTypeInfo, inputTypeInfo, input, out value))
-                result.Add(value);
-            else if (enumType != null)
-            {
-                MethodInfo getEnumeratorMethod = getEnumeratorMethod = enumType.GetMethod("GetEnumerator");
-                object enumerator = getEnumeratorMethod.Invoke(input, null);
-                Type enumeratorType = enumerator.GetType();
-                MethodInfo currentMethod = enumeratorType.GetProperty("Current").GetMethod;
-                MethodInfo moveNextMethod = enumeratorType.GetMethod("MoveNext");
-                bool next;
-                object current;
-                while (true)
-                {
-                    next = (bool)moveNextMethod.Invoke(enumerator, null);
-                    if (!next)
-                        break;
-                    current = currentMethod.Invoke(enumerator, null);
-                    if (current == null)
-                        continue;
-                    if (TryMatchParameterType(elementTypeInfo, current.GetType().GetTypeInfo(), current, out value))
-                        result.Add(value);
-                }
-            }
-            return result;
-        }
-        private static bool TryMatchValueToList(object input, TypeInfo parameterType, bool allowEmpty, out object value)
-        {
-            Type elementType;
-            TypeInfo elementTypeInfo;
-            List<object> values;
-            if (parameterType.IsArray)
-            {
-                elementType = parameterType.GetElementType();
-                elementTypeInfo = elementType.GetTypeInfo();
-                values = TryMatchParameterList(input, elementTypeInfo);
-                if (allowEmpty || values.Count > 0)
-                {
-                    value = GetTypedArray(values, elementType);
-                    return true;
-                }
-                else
-                {
-                    value = null;
-                    return false;
-                }
-            }
-
-            // values -> list
-            if (parameterType.IsAssignableFromList(out elementType))
-            {
-                elementTypeInfo = elementType.GetTypeInfo();
-                values = TryMatchParameterList(input, elementTypeInfo);
-                if (allowEmpty || values.Count > 0)
-                {
-                    value = GetTypedList(values, elementType);
-                    return true;
-                }
-                else
-                {
-                    value = null;
-                    return false;
-                }
-            }
-
-            value = null;
-            return false;
-        }
         private static double CalculateScore(int matchedCount, int defaultValueCount, int typeDefaultCount, int notTypeDefaultCount, int totalCount)
         {
             if (totalCount == 0)
@@ -281,9 +125,9 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             ArgumentTraverseContext traverseContext = new ArgumentTraverseContext(parameters);
             bool traverseResult;
             int inputParameterCount = parameters.Length;
-            TypeInfo[] inputParameterTypes = new TypeInfo[inputParameterCount];
+            Type[] inputParameterTypes = new Type[inputParameterCount];
             for (int i = 0; i < inputParameterCount; i++)
-                inputParameterTypes[i] = parameters[i].GetType().GetTypeInfo();
+                inputParameterTypes[i] = parameters[i].GetType();
 
             ParameterInfo[] methodParameters = method.GetParameters();
             int paramCount = methodParameters.Length;
@@ -295,7 +139,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             int notTypeDefaultCount = 0;
             int notMatchedCount = 0;
             Type paramType;
-            TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
             ParameterMatchingEventArgs matchingEventArgs;
             object value;
@@ -303,7 +146,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             foreach (ParameterInfo parameter in methodParameters)
             {
                 paramType = parameter.ParameterType;
-                paramTypeInfo = paramType.GetTypeInfo();
                 paramIndex = parameter.Position;
 
                 paramsAttribute = parameter.GetCustomAttribute<ParamArrayAttribute>();
@@ -311,13 +153,12 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 {
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
-                    TypeInfo elementTypeInfo = elementType.GetTypeInfo();
                     traverseContext.Reset();
                     do
                     {
                         traverseResult = traverseContext.GoNext((input, index) =>
                         {
-                            if (TryMatchParameterType(elementTypeInfo, inputParameterTypes[index], input, out value))
+                            if (ReflectionHelper.TryMatchValue(elementType, inputParameterTypes[index], input, out value))
                             {
                                 extras.Add(value);
                                 return true;
@@ -325,7 +166,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                             return false;
                         });
                     } while (traverseResult);
-                    result[paramIndex] = GetTypedArray(extras, elementType);
+                    result[paramIndex] = ReflectionHelper.CreateArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }
@@ -343,7 +184,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 traverseContext.Reset();
                 do
                 {
-                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchParameterType(paramTypeInfo, inputParameterTypes[index], input, out value)));
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReflectionHelper.TryMatchValue(paramType, inputParameterTypes[index], input, out value)));
                     if (isValueFound)
                         break;
                 } while (traverseResult);
@@ -384,7 +225,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 traverseContext.Reset();
                 do
                 {
-                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchValueToList(input, paramTypeInfo, false, out value)));
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReflectionHelper.TryMatchValueAsList(input, paramType, false, out value)));
                     if (isValueFound)
                         break;
                 } while (traverseResult);
@@ -396,7 +237,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 }
 
                 {
-                    result[paramIndex] = paramTypeInfo.DefaultValue();
+                    result[paramIndex] = paramType.DefaultValue();
                     typeDefaultCount++;
                 }
             }
@@ -426,7 +267,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             int notTypeDefaultCount = 0;
             int notMatchedCount = 0;
             Type paramType;
-            TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
             ParameterMatchingEventArgs matchingEventArgs;
             object value;
@@ -434,7 +274,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             foreach (ParameterInfo parameter in methodParameters)
             {
                 paramType = parameter.ParameterType;
-                paramTypeInfo = paramType.GetTypeInfo();
                 paramIndex = parameter.Position;
 
                 paramsAttribute = parameter.GetCustomAttribute<ParamArrayAttribute>();
@@ -442,15 +281,14 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 {
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
-                    TypeInfo elementTypeInfo = elementType.GetTypeInfo();
                     foreach (var pair in options)
                     {
                         if (usedKeys.Contains(pair.Key))
                             continue;
-                        if (TryMatchParameterType(elementTypeInfo, pair.Value.GetType().GetTypeInfo(), pair.Value, out value))
+                        if (ReflectionHelper.TryMatchValue(elementType, pair.Value.GetType(), pair.Value, out value))
                             extras.Add(value);
                     }
-                    result[paramIndex] = GetTypedArray(extras, elementType);
+                    result[paramIndex] = ReflectionHelper.CreateArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }
@@ -465,7 +303,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 value = null;
                 paramName = parameter.Name.ToLower();
-                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, options, out value))
+                if (ReflectionHelper.TryFindValue(paramName, paramType, options, out value))
                 {
                     usedKeys.Add(paramName);
                     result[paramIndex] = value;
@@ -489,7 +327,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 }
 
                 {
-                    result[paramIndex] = paramTypeInfo.DefaultValue();
+                    result[paramIndex] = paramType.DefaultValue();
                     typeDefaultCount++;
                 }
             }
@@ -513,9 +351,9 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             ArgumentTraverseContext traverseContext = new ArgumentTraverseContext(parameters);
             bool traverseResult;
             int inputParameterCount = parameters.Length;
-            TypeInfo[] inputParameterTypes = new TypeInfo[inputParameterCount];
+            Type[] inputParameterTypes = new Type[inputParameterCount];
             for (int i = 0; i < inputParameterCount; i++)
-                inputParameterTypes[i] = parameters[i].GetType().GetTypeInfo();
+                inputParameterTypes[i] = parameters[i].GetType();
 
             SortedSet<string> usedKeys = new SortedSet<string>();
             ParameterInfo[] methodParameters = method.GetParameters();
@@ -528,7 +366,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             int notTypeDefaultCount = 0;
             int notMatchedCount = 0;
             Type paramType;
-            TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
             ParameterMatchingEventArgs matchingEventArgs;
             object value;
@@ -537,7 +374,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             foreach (ParameterInfo parameter in methodParameters)
             {
                 paramType = parameter.ParameterType;
-                paramTypeInfo = paramType.GetTypeInfo();
                 paramIndex = parameter.Position;
 
                 paramsAttribute = parameter.GetCustomAttribute<ParamArrayAttribute>();
@@ -545,12 +381,11 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 {
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
-                    TypeInfo elementTypeInfo = elementType.GetTypeInfo();
                     foreach (var pair in options)
                     {
                         if (usedKeys.Contains(pair.Key))
                             continue;
-                        if (TryMatchParameterType(elementTypeInfo, pair.Value.GetType().GetTypeInfo(), pair.Value, out value))
+                        if (ReflectionHelper.TryMatchValue(elementType, pair.Value.GetType(), pair.Value, out value))
                             extras.Add(value);
                     }
 
@@ -559,7 +394,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     {
                         traverseResult = traverseContext.GoNext((input, index) =>
                         {
-                            if (TryMatchParameterType(elementTypeInfo, inputParameterTypes[index], input, out value))
+                            if (ReflectionHelper.TryMatchValue(elementType, inputParameterTypes[index], input, out value))
                             {
                                 extras.Add(value);
                                 return true;
@@ -567,7 +402,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                             return false;
                         });
                     } while (traverseResult);
-                    result[paramIndex] = GetTypedArray(extras, elementType);
+                    result[paramIndex] = ReflectionHelper.CreateArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }
@@ -582,7 +417,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 value = null;
                 paramName = parameter.Name.ToLower();
-                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, options, out value))
+                if (ReflectionHelper.TryFindValue(paramName, paramType, options, out value))
                 {
                     isValueFound = true;
                     usedKeys.Add(paramName);
@@ -595,7 +430,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 traverseContext.Reset();
                 do
                 {
-                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchParameterType(paramTypeInfo, inputParameterTypes[index], input, out value)));
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReflectionHelper.TryMatchValue(paramType, inputParameterTypes[index], input, out value)));
                     if (isValueFound)
                         break;
                 } while (traverseResult);
@@ -636,7 +471,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 traverseContext.Reset();
                 do
                 {
-                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchValueToList(input, paramTypeInfo, false, out value)));
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReflectionHelper.TryMatchValueAsList(input, paramType, false, out value)));
                     if (isValueFound)
                         break;
                 } while (traverseResult);
@@ -648,7 +483,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 }
 
                 {
-                    result[paramIndex] = paramTypeInfo.DefaultValue();
+                    result[paramIndex] = paramType.DefaultValue();
                     typeDefaultCount++;
                 }
             }
@@ -751,9 +586,9 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             ArgumentTraverseContext traverseContext = new ArgumentTraverseContext(parameters);
             bool traverseResult;
             int inputParameterCount = parameters.Length;
-            TypeInfo[] inputParameterTypes = new TypeInfo[inputParameterCount];
+            Type[] inputParameterTypes = new TypeInfo[inputParameterCount];
             for (int i = 0; i < inputParameterCount; i++)
-                inputParameterTypes[i] = parameters[i].GetType().GetTypeInfo();
+                inputParameterTypes[i] = parameters[i].GetType();
 
             ParameterInfo[] methodParameters = method.GetParameters();
             int paramCount = methodParameters.Length;
@@ -765,7 +600,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             int notTypeDefaultCount = 0;
             int notMatchedCount = 0;
             Type paramType;
-            TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
             ParameterMatchingEventArgs matchingEventArgs;
             object value;
@@ -773,7 +607,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             foreach (ParameterInfo parameter in methodParameters)
             {
                 paramType = parameter.ParameterType;
-                paramTypeInfo = paramType.GetTypeInfo();
                 paramIndex = parameter.Position;
 
                 paramsAttribute = parameter.GetCustomAttribute<ParamArrayAttribute>();
@@ -781,13 +614,12 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 {
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
-                    TypeInfo elementTypeInfo = elementType.GetTypeInfo();
                     traverseContext.Reset();
                     do
                     {
                         traverseResult = traverseContext.GoNext((input, index) =>
                         {
-                            if (TryMatchParameterType(elementTypeInfo, inputParameterTypes[index], input, out value))
+                            if (ReflectionHelper.TryMatchValue(elementType, inputParameterTypes[index], input, out value))
                             {
                                 extras.Add(value);
                                 return true;
@@ -795,7 +627,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                             return false;
                         });
                     } while (traverseResult);
-                    result[paramIndex] = GetTypedArray(extras, elementType);
+                    result[paramIndex] = ReflectionHelper.CreateArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }
@@ -813,7 +645,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 traverseContext.Reset();
                 do
                 {
-                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchParameterType(paramTypeInfo, inputParameterTypes[index], input, out value)));
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReflectionHelper.TryMatchValue(paramType, inputParameterTypes[index], input, out value)));
                     if (isValueFound)
                         break;
                 } while (traverseResult);
@@ -861,7 +693,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 traverseContext.Reset();
                 do
                 {
-                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchValueToList(input, paramTypeInfo, false, out value)));
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReflectionHelper.TryMatchValueAsList(input, paramType, false, out value)));
                     if (isValueFound)
                         break;
                 } while (traverseResult);
@@ -873,7 +705,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 }
 
                 {
-                    result[paramIndex] = paramTypeInfo.DefaultValue();
+                    result[paramIndex] = paramType.DefaultValue();
                     typeDefaultCount++;
                 }
             }
@@ -904,7 +736,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             int notTypeDefaultCount = 0;
             int notMatchedCount = 0;
             Type paramType;
-            TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
             ParameterMatchingEventArgs matchingEventArgs;
             object value;
@@ -912,7 +743,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             foreach (ParameterInfo parameter in methodParameters)
             {
                 paramType = parameter.ParameterType;
-                paramTypeInfo = paramType.GetTypeInfo();
                 paramIndex = parameter.Position;
 
                 paramsAttribute = parameter.GetCustomAttribute<ParamArrayAttribute>();
@@ -920,15 +750,14 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 {
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
-                    TypeInfo elementTypeInfo = elementType.GetTypeInfo();
                     foreach (var pair in options)
                     {
                         if (usedKeys.Contains(pair.Key))
                             continue;
-                        if (TryMatchParameterType(elementTypeInfo, pair.Value.GetType().GetTypeInfo(), pair.Value, out value))
+                        if (ReflectionHelper.TryMatchValue(elementType, pair.Value.GetType(), pair.Value, out value))
                             extras.Add(value);
                     }
-                    result[paramIndex] = GetTypedArray(extras, elementType);
+                    result[paramIndex] = ReflectionHelper.CreateArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }
@@ -943,7 +772,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 value = null;
                 paramName = parameter.Name.ToLower();
-                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, options, out value))
+                if (ReflectionHelper.TryFindValue(paramName, paramType, options, out value))
                 {
                     usedKeys.Add(paramName);
                     result[paramIndex] = value;
@@ -974,7 +803,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 }
 
                 {
-                    result[paramIndex] = paramTypeInfo.DefaultValue();
+                    result[paramIndex] = paramType.DefaultValue();
                     typeDefaultCount++;
                 }
             }
@@ -1000,9 +829,9 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             ArgumentTraverseContext traverseContext = new ArgumentTraverseContext(parameters);
             bool traverseResult;
             int inputParameterCount = parameters.Length;
-            TypeInfo[] inputParameterTypes = new TypeInfo[inputParameterCount];
+            Type[] inputParameterTypes = new Type[inputParameterCount];
             for (int i = 0; i < inputParameterCount; i++)
-                inputParameterTypes[i] = parameters[i].GetType().GetTypeInfo();
+                inputParameterTypes[i] = parameters[i].GetType();
 
             SortedSet<string> usedKeys = new SortedSet<string>();
             ParameterInfo[] methodParameters = method.GetParameters();
@@ -1015,7 +844,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             int notTypeDefaultCount = 0;
             int notMatchedCount = 0;
             Type paramType;
-            TypeInfo paramTypeInfo;
             ParamArrayAttribute paramsAttribute;
             ParameterMatchingEventArgs matchingEventArgs;
             object value;
@@ -1024,7 +852,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             foreach (ParameterInfo parameter in methodParameters)
             {
                 paramType = parameter.ParameterType;
-                paramTypeInfo = paramType.GetTypeInfo();
                 paramIndex = parameter.Position;
 
                 paramsAttribute = parameter.GetCustomAttribute<ParamArrayAttribute>();
@@ -1032,12 +859,11 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 {
                     List<object> extras = new List<object>();
                     Type elementType = paramType.GetElementType();
-                    TypeInfo elementTypeInfo = elementType.GetTypeInfo();
                     foreach (var pair in options)
                     {
                         if (usedKeys.Contains(pair.Key))
                             continue;
-                        if (TryMatchParameterType(elementTypeInfo, pair.Value.GetType().GetTypeInfo(), pair.Value, out value))
+                        if (ReflectionHelper.TryMatchValue(elementType, pair.Value.GetType(), pair.Value, out value))
                             extras.Add(value);
                     }
                     traverseContext.Reset();
@@ -1045,7 +871,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     {
                         traverseResult = traverseContext.GoNext((input, index) =>
                         {
-                            if (TryMatchParameterType(elementTypeInfo, inputParameterTypes[index], input, out value))
+                            if (ReflectionHelper.TryMatchValue(elementType, inputParameterTypes[index], input, out value))
                             {
                                 extras.Add(value);
                                 return true;
@@ -1053,7 +879,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                             return false;
                         });
                     } while (traverseResult);
-                    result[paramIndex] = GetTypedArray(extras, elementType);
+                    result[paramIndex] = ReflectionHelper.CreateArray(extras, elementType);
                     matchedCount++;
                     continue;
                 }
@@ -1068,7 +894,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
                 value = null;
                 paramName = parameter.Name.ToLower();
-                if (TryFindParameterFromDictionary(paramName, paramTypeInfo, options, out value))
+                if (ReflectionHelper.TryFindValue(paramName, paramType, options, out value))
                 {
                     isValueFound = true;
                     usedKeys.Add(paramName);
@@ -1081,7 +907,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 traverseContext.Reset();
                 do
                 {
-                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchParameterType(paramTypeInfo, inputParameterTypes[index], input, out value)));
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReflectionHelper.TryMatchValue(paramType, inputParameterTypes[index], input, out value)));
                     if (isValueFound)
                         break;
                 } while (traverseResult);
@@ -1129,7 +955,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 traverseContext.Reset();
                 do
                 {
-                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = TryMatchValueToList(input, paramTypeInfo, false, out value)));
+                    traverseResult = traverseContext.GoNext((input, index) => (isValueFound = ReflectionHelper.TryMatchValueAsList(input, paramType, false, out value)));
                     if (isValueFound)
                         break;
                 } while (traverseResult);
@@ -1141,7 +967,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 }
 
                 {
-                    result[paramIndex] = paramTypeInfo.DefaultValue();
+                    result[paramIndex] = paramType.DefaultValue();
                     typeDefaultCount++;
                 }
             }

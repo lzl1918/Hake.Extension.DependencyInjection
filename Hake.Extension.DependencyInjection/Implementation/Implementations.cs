@@ -1,22 +1,20 @@
 ﻿using Hake.Extension.DependencyInjection.Abstraction;
 using System;
-using System.Collections.Generic;
-using System.Text;
 
-namespace Hake.Extension.DependencyInjection.Implementations
+namespace Hake.Extension.DependencyInjection
 {
     public static class Implementation
     {
         public static IServiceCollection CreateServiceCollection()
         {
-            return new InternalImplementations.ServiceCollection();
+            return new Implementations.Internals.ServiceCollection();
         }
         public static IServiceProvider CreateServiceProvider(IServiceCollection services)
         {
             if (services == null)
                 throw new ArgumentNullException(nameof(services));
 
-            return new InternalImplementations.ServiceProvider(services);
+            return new Implementations.Internals.ServiceProvider(services);
         }
     }
 }

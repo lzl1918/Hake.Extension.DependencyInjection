@@ -1,4 +1,5 @@
-﻿using Hake.Extension.DependencyInjection.Abstraction;
+﻿using Hake.Extension.DependencyInjection;
+using Hake.Extension.DependencyInjection.Abstraction;
 using Hake.Extension.DependencyInjection.Implementations;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;

@@ -1,9 +1,8 @@
 ﻿using Hake.Extension.DependencyInjection.Abstraction;
 using System;
 using System.Collections.Generic;
-using System.Text;
 
-namespace Hake.Extension.DependencyInjection.Implementations.InternalImplementations
+namespace Hake.Extension.DependencyInjection.Implementations.Internals
 {
     internal sealed class ServiceCollection : IServiceCollection
     {
@@ -67,7 +66,7 @@ namespace Hake.Extension.DependencyInjection.Implementations.InternalImplementat
         }
         public bool TryGetDescriptor(Type serviceType, out ServiceDescriptor descriptor)
         {
-            if(serviceType == null)
+            if (serviceType == null)
             {
                 descriptor = null;
                 return false;
@@ -95,7 +94,5 @@ namespace Hake.Extension.DependencyInjection.Implementations.InternalImplementat
             else
                 return false;
         }
-
-
     }
 }
