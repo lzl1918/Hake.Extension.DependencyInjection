@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Hake.Extension.DependencyInjection.Abstraction.Internals;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
@@ -57,9 +58,8 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 return;
 
             Type instanceType = ImplementationInstance.GetType();
-            Type disposeable = instanceType.GetTypeInfo().GetInterface(nameof(IDisposable));
-            if (disposeable != null)
-                disposeable.GetMethod("Dispose").Invoke(ImplementationInstance, new object[0]);
+            if (instanceType.IsDisposable())
+                ((IDisposable)ImplementationInstance).Dispose();
             ImplementationInstance = null;
         }
 
@@ -152,9 +152,8 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 return;
 
             Type instanceType = ImplementationInstance.GetType();
-            Type disposeable = instanceType.GetTypeInfo().GetInterface(nameof(IDisposable));
-            if (disposeable != null)
-                disposeable.GetMethod("Dispose").Invoke(ImplementationInstance, new object[0]);
+            if (instanceType.IsDisposable())
+                ((IDisposable)ImplementationInstance).Dispose();
             ImplementationInstance = null;
         }
 

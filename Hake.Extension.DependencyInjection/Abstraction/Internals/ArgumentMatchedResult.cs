@@ -103,7 +103,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction.Internals
                 }
 
                 {
-                    result[paramIndex] = paramTypeInfo.DefaultValue();
+                    result[paramIndex] = paramType.DefaultValue();
                     typeDefaultCount++;
                 }
             }
@@ -563,7 +563,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction.Internals
                 }
 
                 {
-                    result[paramIndex] = paramTypeInfo.DefaultValue();
+                    result[paramIndex] = paramType.DefaultValue();
                     typeDefaultCount++;
                 }
             }
@@ -586,7 +586,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction.Internals
             ArgumentTraverseContext traverseContext = new ArgumentTraverseContext(parameters);
             bool traverseResult;
             int inputParameterCount = parameters.Length;
-            Type[] inputParameterTypes = new TypeInfo[inputParameterCount];
+            Type[] inputParameterTypes = new Type[inputParameterCount];
             for (int i = 0; i < inputParameterCount; i++)
                 inputParameterTypes[i] = parameters[i].GetType();
 

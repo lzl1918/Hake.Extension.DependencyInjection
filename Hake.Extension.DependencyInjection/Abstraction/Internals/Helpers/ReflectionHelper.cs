@@ -10,11 +10,10 @@ namespace Hake.Extension.DependencyInjection.Abstraction.Internals.Helpers
         public static IEnumerator GetEnumerator(object value)
         {
             Type valueType = value.GetType();
-            Type ienumType = valueType.GetIEnumerable();
+            Type ienumType = valueType.GetIEnumerableInterface();
             if (ienumType == null)
                 return null;
-            MethodInfo getEnumeratorMethod = ienumType.GetMethod("GetEnumerator");
-            return getEnumeratorMethod.Invoke(value, null) as IEnumerator;
+            return ((IEnumerable)value).GetEnumerator();
         }
 
         public static object CreateArray(List<object> values, Type elementType)
@@ -22,7 +21,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction.Internals.Helpers
             int count = values.Count;
             Type arrayType = elementType.MakeArrayType();
             object array = Activator.CreateInstance(arrayType, count);
-            MethodInfo method = arrayType.GetMethod("Set", BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            MethodInfo method = arrayType.GetMethodOverloads("Set", true)[0];
             object[] param = new object[2];
             for (int i = 0; i < count; i++)
             {
@@ -37,7 +36,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction.Internals.Helpers
             int count = values.Count;
             object list = TypeExtensions.CreateEmptyList(elementType);
             Type listType = list.GetType();
-            MethodInfo method = listType.GetMethod("Add", BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            MethodInfo method = listType.GetMethodOverloads("Add", true)[0];
             object[] param = new object[1];
             for (int i = 0; i < count; i++)
             {
@@ -49,12 +48,24 @@ namespace Hake.Extension.DependencyInjection.Abstraction.Internals.Helpers
 
         public static bool TryMatchValue(Type targetType, Type type, object value, out object target)
         {
+#if NETSTANDARD2_0 || NET452
             if (targetType.IsAssignableFrom(type))
             {
                 target = value;
                 return true;
             }
-            else if (targetType.GetInterface("System.IConvertible") != null && type.GetInterface("System.IConvertible") != null)
+#elif NETSTANDARD1_2
+            if (targetType.GetTypeInfoFromCache().IsAssignableFrom(type.GetTypeInfoFromCache()))
+            {
+                target = value;
+                return true;
+            }
+#else
+            // raise a compile error
+            abcdefg
+#endif
+
+            else if (targetType.IsConvertible() && type.IsConvertible())
             {
                 try
                 {

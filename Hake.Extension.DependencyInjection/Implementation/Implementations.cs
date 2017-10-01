@@ -9,7 +9,7 @@ namespace Hake.Extension.DependencyInjection
         {
             return new Implementations.Internals.ServiceCollection();
         }
-        public static IServiceProvider CreateServiceProvider(IServiceCollection services)
+        public static IServiceProvider CreateProvider(this IServiceCollection services)
         {
             if (services == null)
                 throw new ArgumentNullException(nameof(services));

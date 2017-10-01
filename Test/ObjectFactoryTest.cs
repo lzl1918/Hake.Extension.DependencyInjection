@@ -29,7 +29,7 @@ namespace Test
             IServiceCollection pool = Implementation.CreateServiceCollection();
             pool.Add(descA);
             pool.Add(descB);
-            IServiceProvider services = Implementation.CreateServiceProvider(pool);
+            IServiceProvider services = pool.CreateProvider();
             TakeArguments args = services.CreateInstance<TakeArguments>("match", 4, 0);
             Assert.AreEqual(1, args.FakeValue);
             Assert.AreEqual(10, args.IntValue);
@@ -82,7 +82,7 @@ namespace Test
         public void CreateObjectsTest()
         {
             IServiceCollection pool = Implementation.CreateServiceCollection();
-            IServiceProvider services = Implementation.CreateServiceProvider(pool);
+            IServiceProvider services = pool.CreateProvider();
             try
             {
                 object staticobj = services.CreateInstance(typeof(StaticObject), 10) as StaticObject;

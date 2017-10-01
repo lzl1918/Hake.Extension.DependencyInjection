@@ -12,6 +12,9 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         public static event EventHandler<ParameterMatchingEventArgs> ParameterMatching;
         public static event EventHandler<ValueMatchingEventArgs> ValueMatching;
 
+#if NETSTANDARD1_2
+#endif
+
         internal static ValueMatchingEventArgs RaiseValueMatchingEvent(Type targetType, Type inputType, object inputValue)
         {
             if (ValueMatching == null)
@@ -45,7 +48,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 throw new InvalidOperationException($"primitive type {instanceType.Name} has no constructor");
             }
 
-            ConstructorInfo[] constructors = instanceType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+            ConstructorInfo[] constructors = instanceType.GetConstructorsFromCache();
             if (constructors.Length <= 0)
                 throw new InvalidOperationException($"cannot find any constructor to initialize instance of type {instanceType.Name}");
 
@@ -95,7 +98,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 throw new InvalidOperationException($"primitive type {instanceType.Name} has no constructor");
             }
 
-            ConstructorInfo[] constructors = instanceType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+            ConstructorInfo[] constructors = instanceType.GetConstructorsFromCache();
             if (constructors.Length <= 0)
                 throw new InvalidOperationException($"cannot find any constructor to initialize instance of type {instanceType.Name}");
 
@@ -142,7 +145,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 throw new InvalidOperationException($"primitive type {instanceType.Name} has no constructor");
             }
 
-            ConstructorInfo[] constructors = instanceType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+            ConstructorInfo[] constructors = instanceType.GetConstructorsFromCache();
             if (constructors.Length <= 0)
                 throw new InvalidOperationException($"cannot find any constructor to initialize instance of type {instanceType.Name}");
 
@@ -194,7 +197,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 throw new InvalidOperationException($"primitive type {instanceType.Name} has no constructor");
             }
 
-            ConstructorInfo[] constructors = instanceType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+            ConstructorInfo[] constructors = instanceType.GetConstructorsFromCache();
             if (constructors.Length <= 0)
                 throw new InvalidOperationException($"cannot find any constructor to initialize instance of type {instanceType.Name}");
 
@@ -228,15 +231,13 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         private static bool TryFindBestMatchOfPrimitive(Type type, object[] parameters, out object value)
         {
             int paramCount = parameters.Length;
-            TypeInfo[] paramTypes = new TypeInfo[paramCount];
-            TypeInfo currentTypeInfo;
+            Type[] paramTypes = new Type[paramCount];
             Type currentType;
             object paramValue;
             for (int i = 0; i < paramCount; i++)
             {
                 paramValue = parameters[i];
                 currentType = paramValue.GetType();
-                currentTypeInfo = currentType.GetTypeInfo();
 
                 if (currentType.Equals(type))
                 {
@@ -244,11 +245,11 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     return true;
                 }
 
-                paramTypes[i] = currentTypeInfo;
+                paramTypes[i] = currentType;
             }
             for (int i = 0; i < paramCount; i++)
             {
-                if (paramTypes[i].GetInterface("IConvertible") != null)
+                if (paramTypes[i].IsConvertible())
                 {
                     try
                     {
@@ -265,31 +266,29 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         }
         private static bool TryFindBestMatchOfPrimitive(Type type, IReadOnlyDictionary<string, object> parameters, out object value)
         {
-            TypeInfo currentTypeInfo;
             Type currentType;
             object paramValue;
             int paramCount = parameters.Count;
-            TypeInfo[] paramTypes = new TypeInfo[paramCount];
+            Type[] paramTypes = new Type[paramCount];
             object[] paramValues = new object[paramCount];
             int i = 0;
             foreach (var pair in parameters)
             {
                 paramValue = pair.Value;
                 currentType = paramValue.GetType();
-                currentTypeInfo = currentType.GetTypeInfo();
                 if (currentType.Equals(type))
                 {
                     value = paramValue;
                     return true;
                 }
 
-                paramTypes[i] = currentTypeInfo;
+                paramTypes[i] = currentType;
                 paramValues[i] = paramValue;
                 i++;
             }
             for (i = 0; i < paramCount; i++)
             {
-                if (paramTypes[i].GetInterface("IConvertible") != null)
+                if (paramTypes[i].IsConvertible())
                 {
                     try
                     {
@@ -318,7 +317,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                     value = paramValue;
                     return true;
                 }
-                else if (currentTypeInfo.GetInterface("IConvertible") != null)
+                else if (currentType.IsConvertible())
                 {
                     try
                     {
@@ -360,7 +359,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 throw new ArgumentNullException(nameof(methodName));
 
             Type instanceType = instance.GetType();
-            MethodInfo[] methods = instanceType.GetMember(methodName, BindingFlags.Public | BindingFlags.Instance).Where(m => m is MethodInfo).Select(m => m as MethodInfo).ToArray();
+            MethodInfo[] methods = instanceType.GetMethodOverloads(methodName, false);
             if (methods.Length <= 0)
                 throw new InvalidOperationException("cannot find method {methodName} of instance {instance}");
 
@@ -391,7 +390,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 return InvokeMethod(instance, methodName, parameters);
 
             Type instanceType = instance.GetType();
-            MethodInfo[] methods = instanceType.GetMember(methodName, BindingFlags.Public | BindingFlags.Instance).Where(m => m is MethodInfo).Select(m => m as MethodInfo).ToArray();
+            MethodInfo[] methods = instanceType.GetMethodOverloads(methodName, false);
             if (methods.Length <= 0)
                 throw new InvalidOperationException("cannot find method {methodName} of instance {instance}");
 
@@ -422,7 +421,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 return InvokeMethod(instance, methodName, parameters);
 
             Type instanceType = instance.GetType();
-            MethodInfo[] methods = instanceType.GetMember(methodName, BindingFlags.Public | BindingFlags.Instance).Where(m => m is MethodInfo).Select(m => m as MethodInfo).ToArray();
+            MethodInfo[] methods = instanceType.GetMethodOverloads(methodName, false);
             if (methods.Length <= 0)
                 throw new InvalidOperationException("cannot find method {methodName} of instance {instance}");
 
@@ -455,7 +454,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 return InvokeMethod(instance, methodName, options, parameters);
 
             Type instanceType = instance.GetType();
-            MethodInfo[] methods = instanceType.GetMember(methodName, BindingFlags.Public | BindingFlags.Instance).Where(m => m is MethodInfo).Select(m => m as MethodInfo).ToArray();
+            MethodInfo[] methods = instanceType.GetMethodOverloads(methodName, false);
             if (methods.Length <= 0)
                 throw new InvalidOperationException("cannot find method {methodName} of instance {instance}");
 

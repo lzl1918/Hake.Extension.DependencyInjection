@@ -1,6 +1,13 @@
 # Hake.Extension.DependencyInjection
 DependencyInjection using dotnet core
 
+## How to use
+You can find the package in [NuGet](https://www.nuget.org/packages/Hake.Extension.DependencyInjection/1.0.0)
+
+The project currently supports frameworks of `netstandard1.2, netstandard2.0, net452`. If your framework is not listed, you can build your own library.
+
+## DependencyInjection
+
 By default, almost all prgoramming languages allow developers to invoke methods by passing exactly matched parameters. This is a most nature way as our first class told us you have to do so or you cannot make function calls. While in some cases this could be fussy that you have no way to make calls to different functions in an unified way.
 
 Also, while rebuilding your codes, any change of function signture could cause some repeated work that change every line of code which calls this function.
