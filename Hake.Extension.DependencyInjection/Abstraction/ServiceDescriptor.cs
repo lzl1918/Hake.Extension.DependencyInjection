@@ -157,7 +157,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             ImplementationInstance = null;
         }
 
-        public static ServiceDescriptor Transient<TService, TImplementation>() where TService : class where TImplementation : TService
+        public static ServiceDescriptor Transient<TService, TImplementation>() where TService : class where TImplementation : class, TService
         {
             return Transient(typeof(TService), typeof(TImplementation));
         }
@@ -255,7 +255,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
             return new ServiceDescriptor(serviceType, implementationFactory, ServiceLifetime.Scoped);
         }
 
-        public static ServiceDescriptor Singleton<TService, TImplementation>() where TService : class where TImplementation : TService
+        public static ServiceDescriptor Singleton<TService, TImplementation>() where TService : class where TImplementation : class, TService
         {
             return Singleton(typeof(TService), typeof(TImplementation));
         }
