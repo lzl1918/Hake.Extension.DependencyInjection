@@ -10,18 +10,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         {
             return services.GetDescriptor(typeof(TService));
         }
-
-        public static void EnterScope(this IServiceCollection services)
-        {
-            foreach (ServiceDescriptor descriptor in services.GetDescriptors())
-                descriptor.NotifyScopeEntered();
-        }
-        public static void LeaveScope(this IServiceCollection services)
-        {
-            foreach (ServiceDescriptor descriptor in services.GetDescriptors())
-                descriptor.NotifyScopeExited();
-        }
-
+        
         public static IServiceCollection AddTransient<TService, TImplementation>(this IServiceCollection services) where TService : class where TImplementation : class, TService
         {
             services.Add(ServiceDescriptor.Transient<TService, TImplementation>());

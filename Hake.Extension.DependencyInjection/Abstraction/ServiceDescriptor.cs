@@ -11,7 +11,7 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         public ServiceLifetime Lifetime { get; }
         public Type ServiceType { get; }
         public Type ImplementationType { get; }
-        public object ImplementationInstance { get; private set; }
+        public object ImplementationInstance { get; }
         public Func<IServiceProvider, object> ImplementationFactory { get; }
 
         private ServiceDescriptor(Type serviceType, Type implementationType, ServiceLifetime lifetime) : this(serviceType, lifetime)
@@ -42,119 +42,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 
             ServiceType = serviceType;
             Lifetime = lifetime;
-        }
-
-        internal void NotifyScopeEntered()
-        {
-            if (Lifetime != ServiceLifetime.Scoped)
-                return;
-        }
-        internal void NotifyScopeExited()
-        {
-            if (Lifetime != ServiceLifetime.Scoped)
-                return;
-
-            if (ImplementationInstance == null)
-                return;
-
-            Type instanceType = ImplementationInstance.GetType();
-            if (instanceType.IsDisposable())
-                ((IDisposable)ImplementationInstance).Dispose();
-            ImplementationInstance = null;
-        }
-
-        public object GetInstance(IServiceProvider services)
-        {
-            switch (Lifetime)
-            {
-                case ServiceLifetime.Singleton:
-                    return GetSingletonInstance(services);
-
-                case ServiceLifetime.Scoped:
-                    return GetScopedInstance(services);
-
-                case ServiceLifetime.Transient:
-                    return GetTransientInstance(services);
-
-            }
-            return null;
-        }
-        public object GetInstance()
-        {
-            return GetInstance(null);
-        }
-        private object GetTransientInstance(IServiceProvider services)
-        {
-            if (ImplementationFactory != null)
-                return ImplementationFactory(services);
-
-            if (ImplementationType != null)
-            {
-                if (services == null)
-                    return ObjectFactory.CreateInstance(ImplementationType);
-                else
-                    return ObjectFactory.CreateInstance(ImplementationType, services);
-            }
-            return null;
-        }
-        private object GetSingletonInstance(IServiceProvider services)
-        {
-            if (ImplementationInstance != null)
-                return ImplementationInstance;
-            if (ImplementationFactory != null)
-            {
-                ImplementationInstance = ImplementationFactory(services);
-                return ImplementationInstance;
-            }
-            if (ImplementationType != null)
-            {
-                if (services == null)
-                {
-                    ImplementationInstance = ObjectFactory.CreateInstance(ImplementationType);
-                    return ImplementationInstance;
-                }
-                else
-                {
-                    ImplementationInstance = ObjectFactory.CreateInstance(ImplementationType, services);
-                    return ImplementationInstance;
-                }
-            }
-            return null;
-        }
-        private object GetScopedInstance(IServiceProvider services)
-        {
-            if (ImplementationInstance != null)
-                return ImplementationInstance;
-            if (ImplementationFactory != null)
-            {
-                ImplementationInstance = ImplementationFactory(services);
-                return ImplementationInstance;
-            }
-            if (ImplementationType != null)
-            {
-                if (services == null)
-                {
-                    ImplementationInstance = ObjectFactory.CreateInstance(ImplementationType);
-                    return ImplementationInstance;
-                }
-                else
-                {
-                    ImplementationInstance = ObjectFactory.CreateInstance(ImplementationType, services);
-                    return ImplementationInstance;
-                }
-            }
-            return null;
-        }
-
-        public void TryDispose()
-        {
-            if (ImplementationInstance == null)
-                return;
-
-            Type instanceType = ImplementationInstance.GetType();
-            if (instanceType.IsDisposable())
-                ((IDisposable)ImplementationInstance).Dispose();
-            ImplementationInstance = null;
         }
 
         public static ServiceDescriptor Transient<TService, TImplementation>() where TService : class where TImplementation : class, TService

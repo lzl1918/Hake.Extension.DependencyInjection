@@ -4,14 +4,9 @@ using System.Text;
 
 namespace Hake.Extension.DependencyInjection.Abstraction
 {
-    public interface IServiceCollection : IDisposable
+    public interface IServiceCollection : IReadOnlyServiceCollection
     {
-        bool Add(ServiceDescriptor serviceDescriptor);
-        void ExplicitAdd(ServiceDescriptor serviceDescriptor);
+        bool Add(ServiceDescriptor serviceDescriptor, bool replaceIfExists = false);
         bool Remove(ServiceDescriptor serviceDescriptor);
-
-        ServiceDescriptor GetDescriptor(Type serviceType);
-        bool TryGetDescriptor(Type serviceType, out ServiceDescriptor descriptor);
-        IEnumerable<ServiceDescriptor> GetDescriptors();
     }
 }

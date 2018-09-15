@@ -20,15 +20,12 @@ namespace Hake.Extension.DependencyInjection.Abstraction
                 return false;
             }
 
-            if (provider is IExtendedServiceProvider extendedProvider)
-                return extendedProvider.TryGetService(serviceType, out instance);
-
             try
             {
                 instance = provider.GetService(serviceType);
                 return true;
             }
-            catch (Exception)
+            catch
             {
                 instance = null;
                 return false;

@@ -29,7 +29,8 @@ namespace Test
             IServiceCollection pool = Implementation.CreateServiceCollection();
             pool.Add(descA);
             pool.Add(descB);
-            IServiceProvider services = pool.CreateProvider();
+            IServiceScopeFactory factory = Implementation.CreateServiceScopeFactory(pool);
+            IServiceProvider services = factory.CreateScope().ServiceProvider;
             TakeArguments args = services.CreateInstance<TakeArguments>("match", 4, 0);
             Assert.AreEqual(1, args.FakeValue);
             Assert.AreEqual(10, args.IntValue);
@@ -82,7 +83,8 @@ namespace Test
         public void CreateObjectsTest()
         {
             IServiceCollection pool = Implementation.CreateServiceCollection();
-            IServiceProvider services = pool.CreateProvider();
+            IServiceScopeFactory factory = Implementation.CreateServiceScopeFactory(pool);
+            IServiceProvider services = factory.CreateScope().ServiceProvider;
             try
             {
                 object staticobj = services.CreateInstance(typeof(StaticObject), 10) as StaticObject;
@@ -284,7 +286,7 @@ namespace Test
             Assert.AreEqual(4, ret);
 
             ObjectFactory.ValueMatching += OnValueMatching;
-            DirectoryInfo val = (DirectoryInfo) ObjectFactory.InvokeMethod(obj, nameof(obj.TestChange), "D:\\");
+            DirectoryInfo val = (DirectoryInfo)ObjectFactory.InvokeMethod(obj, nameof(obj.TestChange), "D:\\");
             Assert.AreEqual("D:\\", val.FullName);
         }
 

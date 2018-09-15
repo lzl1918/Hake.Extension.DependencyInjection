@@ -70,5 +70,18 @@ namespace Hake.Extension.DependencyInjection.Utils
             items.AddFirst(new TypedCacheItem<T>(fullName, item));
             return false;
         }
+
+        public IEnumerable<T> GetItems()
+        {
+            foreach (TypedCacheItem<T> item in items)
+            {
+                yield return item.Item;
+            }
+        }
+
+        public void Clear()
+        {
+            items.Clear();
+        }
     }
 }

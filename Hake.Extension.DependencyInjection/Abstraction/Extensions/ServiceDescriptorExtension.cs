@@ -6,13 +6,16 @@ namespace Hake.Extension.DependencyInjection.Abstraction
 {
     public static class ServiceDescriptorExtension
     {
-        public static void EnterScope(this ServiceDescriptor descriptor)
+        public static object CreateInstance(this ServiceDescriptor serviceDescriptor, IServiceProvider serviceProvider)
         {
-            descriptor.NotifyScopeEntered();
-        }
-        public static void LeaveScope(this ServiceDescriptor descriptor)
-        {
-            descriptor.NotifyScopeExited();
+            if (serviceDescriptor == null)
+                throw new ArgumentNullException(nameof(serviceDescriptor));
+
+            if (serviceDescriptor.ImplementationType != null)
+                return serviceProvider.CreateInstance(serviceDescriptor.ImplementationType);
+            if (serviceDescriptor.ImplementationFactory != null)
+                return serviceDescriptor.ImplementationFactory(serviceProvider);
+            return serviceDescriptor.ImplementationInstance;
         }
     }
 }

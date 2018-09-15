@@ -12,9 +12,6 @@ namespace Hake.Extension.DependencyInjection.Abstraction
         public static event EventHandler<ParameterMatchingEventArgs> ParameterMatching;
         public static event EventHandler<ValueMatchingEventArgs> ValueMatching;
 
-#if NETSTANDARD1_2
-#endif
-
         internal static ValueMatchingEventArgs RaiseValueMatchingEvent(Type targetType, Type inputType, object inputValue)
         {
             if (ValueMatching == null)

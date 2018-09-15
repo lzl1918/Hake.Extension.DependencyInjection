@@ -8,53 +8,24 @@ namespace Hake.Extension.DependencyInjection.Implementations.Internals
     {
         private Dictionary<string, ServiceDescriptor> descriptorPool = new Dictionary<string, ServiceDescriptor>();
 
-        public bool Add(ServiceDescriptor serviceDescriptor)
+        public bool Add(ServiceDescriptor serviceDescriptor, bool replaceIfExists)
         {
             if (serviceDescriptor == null)
                 return false;
 
             Type serviceType = serviceDescriptor.ServiceType;
             string typeName = serviceType.FullName;
-            if (descriptorPool.ContainsKey(typeName) == false)
+            if (!descriptorPool.ContainsKey(typeName))
             {
                 descriptorPool.Add(typeName, serviceDescriptor);
                 return true;
             }
-            return false;
+            if (!replaceIfExists)
+                return false;
+            descriptorPool.Add(typeName, serviceDescriptor);
+            return true;
         }
-
-        private bool disposed = false;
-        ~ServiceCollection()
-        {
-            if (!disposed)
-                return;
-            Dispose();
-        }
-        public void Dispose()
-        {
-            if (disposed)
-                return;
-
-            foreach (var pair in descriptorPool)
-            {
-                if (pair.Value.ImplementationInstance == this)
-                    continue;
-                pair.Value.TryDispose();
-            }
-            disposed = true;
-        }
-
-        public void ExplicitAdd(ServiceDescriptor serviceDescriptor)
-        {
-            if (serviceDescriptor == null)
-                return;
-
-            Type serviceType = serviceDescriptor.ServiceType;
-            string typeName = serviceType.FullName;
-
-            descriptorPool[typeName] = serviceDescriptor;
-        }
-
+        
         public ServiceDescriptor GetDescriptor(Type serviceType)
         {
             if (serviceType == null)
